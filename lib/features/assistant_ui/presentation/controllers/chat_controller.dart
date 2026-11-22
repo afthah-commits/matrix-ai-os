@@ -7,6 +7,7 @@ import 'package:matrix_ai_os/features/ai_brain/domain/services/hybrid_rag_orches
 import 'package:matrix_ai_os/features/ai_brain/domain/services/intent_router_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/services/voice_assistant_service.dart';
+import 'package:matrix_ai_os/features/ocr_vision/domain/services/deep_document_finder_service.dart';
 
 /// Individual message in the Matrix AI OS Assistant chat session.
 @immutable
@@ -25,6 +26,7 @@ class ChatMessage {
   final ActionResult? actionResult;
   final String? mcpBadge;
   final List<AgentExecutionStep> executionSteps;
+  final List<DocumentMatchResult> matchedDocuments;
 
   const ChatMessage({
     required this.id,
@@ -41,6 +43,7 @@ class ChatMessage {
     this.actionResult,
     this.mcpBadge,
     this.executionSteps = const [],
+    this.matchedDocuments = const [],
   });
 
   bool get hasBadges =>
@@ -52,7 +55,8 @@ class ChatMessage {
           intent != null ||
           actionResult != null ||
           mcpBadge != null ||
-          executionSteps.isNotEmpty);
+          executionSteps.isNotEmpty ||
+          matchedDocuments.isNotEmpty);
 }
 
 /// State for the Assistant Chat session.
@@ -266,6 +270,7 @@ class ChatController extends StateNotifier<ChatState> {
         mcpBadge: response.mcpBadge,
         executionSteps: response.executionSteps,
         pendingAction: response.pendingConfirmation,
+        matchedDocuments: response.matchedDocuments,
       );
 
       state = state.copyWith(
@@ -342,6 +347,20 @@ class ChatController extends StateNotifier<ChatState> {
     state = state.copyWith(
       messages: [...state.messages, cancelMsg],
     );
+  }
+
+  /// Opens a local document file on the device in native gallery or PDF viewer.
+  Future<void> openDocumentFile(String uri, {String? mimeType}) async {
+    try {
+      final res = await _actionDispatcher.openFileUri(uri, mimeType: mimeType);
+      if (res['success'] == true) {
+        await _voiceService.speak('Opening document on your device');
+      } else {
+        await _voiceService.speak('Could not open file');
+      }
+    } catch (e) {
+      debugPrint('[ChatNotifier] Error opening document: $e');
+    }
   }
 
   void clearChat() {

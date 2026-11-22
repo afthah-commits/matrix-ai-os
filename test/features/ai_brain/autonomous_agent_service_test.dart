@@ -4,6 +4,7 @@ import 'package:matrix_ai_os/core/database/local_database_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/action_dispatcher_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/autonomous_agent_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/knowledge_graph_service.dart';
+import 'package:matrix_ai_os/features/ocr_vision/domain/services/deep_document_finder_service.dart';
 
 // Fake KnowledgeGraphService for testing AutonomousAgent queries
 class FakeKnowledgeGraphService extends Fake implements KnowledgeGraphService {
@@ -36,12 +37,45 @@ class FakeKnowledgeGraphService extends Fake implements KnowledgeGraphService {
   }
 }
 
+// Fake DeepDocumentFinderService for testing AutonomousAgent document searches
+class FakeDeepDocumentFinderService extends Fake implements DeepDocumentFinderService {
+  @override
+  Future<List<DocumentMatchResult>> findDocument(
+    String query, {
+    bool forceLiveScan = false,
+    int maxScanCandidates = 10,
+  }) async {
+    final lower = query.toLowerCase();
+    if (lower.contains('passport') || lower.contains('doc') || lower.contains('ticket')) {
+      return [
+        DocumentMatchResult(
+          id: 1,
+          title: 'Republic of India Passport',
+          category: 'PASSPORT_ID',
+          extractedSummary: 'Passport for DOE JOHN (No. A1234567)',
+          keyFields: {
+            'documentNumber': 'A1234567',
+            'fullName': 'DOE JOHN',
+            'country': 'INDIA',
+          },
+          fileUri: 'content://media/external/images/media/101',
+          mimeType: 'image/jpeg',
+          timestamp: DateTime.now(),
+          fromLiveScan: false,
+        ),
+      ];
+    }
+    return [];
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late ActionDispatcherService actionDispatcher;
   late KnowledgeGraphService knowledgeGraphService;
   late AutonomousAgentService agentService;
+  late AutonomousAgentService agentServiceWithDocFinder;
   final List<MethodCall> nativeCalls = [];
 
   setUp(() {
@@ -133,6 +167,13 @@ void main() {
               'method': 'ACTION_SCROLL',
             };
 
+          case 'openFileUri':
+            final uri = (call.arguments as Map)['uri']?.toString() ?? '';
+            return {
+              'success': true,
+              'message': 'Opened file "$uri"',
+            };
+
           default:
             return null;
         }
@@ -144,6 +185,11 @@ void main() {
     agentService = AutonomousAgentService(
       actionDispatcher: actionDispatcher,
       knowledgeGraphService: knowledgeGraphService,
+    );
+    agentServiceWithDocFinder = AutonomousAgentService(
+      actionDispatcher: actionDispatcher,
+      knowledgeGraphService: knowledgeGraphService,
+      documentFinderService: FakeDeepDocumentFinderService(),
     );
   });
 
@@ -256,6 +302,19 @@ void main() {
       expect(scrollCall, isNotNull);
       expect(scrollCall!.toolName, equals('SCROLL_SCREEN'));
       expect(scrollCall.arguments['direction'], equals('down'));
+    });
+
+    test('Parses open file and view document commands', () {
+      final call1 = agentService.parseToolCall('open file content://media/external/images/media/101');
+      expect(call1, isNotNull);
+      expect(call1!.toolName, equals('OPEN_FILE'));
+      expect(call1.arguments['uri'], equals('content://media/external/images/media/101'));
+      expect(call1.isSensitive, isFalse);
+
+      final call2 = agentService.parseToolCall('view file /sdcard/Download/ticket.pdf');
+      expect(call2, isNotNull);
+      expect(call2!.toolName, equals('OPEN_FILE'));
+      expect(call2.arguments['uri'], equals('/sdcard/Download/ticket.pdf'));
     });
 
     test('Parses structured tool call from Cloud LLM JSON responses with financial safety check', () {
@@ -407,6 +466,29 @@ void main() {
       expect(nativeCalls.any((c) => c.method == 'launchAppByName'), isTrue);
       expect(nativeCalls.any((c) => c.method == 'clickUiElement'), isTrue);
       expect(nativeCalls.any((c) => c.method == 'typeUiText'), isTrue);
+    });
+
+    test('Executes SEARCH_FILES_AND_OCR with DeepDocumentFinderService and populates matchedDocuments', () async {
+      final result = await agentServiceWithDocFinder.executeAgentLoop('find my passport');
+      expect(result.hasAction, isTrue);
+      expect(result.actionBadge, equals('Document Finder'));
+      expect(result.matchedDocuments, isNotEmpty);
+      expect(result.matchedDocuments.length, equals(1));
+      expect(result.matchedDocuments.first.category, equals('PASSPORT_ID'));
+      expect(result.matchedDocuments.first.fileUri, equals('content://media/external/images/media/101'));
+      expect(result.finalResponse, contains('Found 1 Matching Document(s)'));
+      expect(result.steps.any((s) => s.status == 'success'), isTrue);
+    });
+
+    test('Executes OPEN_FILE action via ActionDispatcher and native channel', () async {
+      final result = await agentService.executeAgentLoop('open file content://media/external/images/media/101');
+      expect(result.hasAction, isTrue);
+      expect(result.actionBadge, equals('Document Viewer'));
+      expect(result.finalResponse, contains('Opened document in your phone\'s default viewer'));
+      expect(result.steps.any((s) => s.stepName.contains('Opened file in viewer')), isTrue);
+      expect(nativeCalls.any((c) => c.method == 'openFileUri'), isTrue);
+      final call = nativeCalls.firstWhere((c) => c.method == 'openFileUri');
+      expect((call.arguments as Map)['uri'], equals('content://media/external/images/media/101'));
     });
   });
 }

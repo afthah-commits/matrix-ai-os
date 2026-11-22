@@ -1,16 +1,26 @@
 package com.matrixai.os.matrix_ai_os
 
 import android.accessibilityservice.AccessibilityService
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.ParcelFileDescriptor
+import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
+import android.webkit.MimeTypeMap
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * MethodChannel handler for Phone Action Execution, Dynamic App Launcher, and Accessibility screen reading.
@@ -125,6 +135,34 @@ class ActionExecutorChannel(
                 "inspectUiTree" -> {
                     val tree = MatrixAccessibilityService.getInteractiveUiTree()
                     result.success(tree)
+                }
+
+                "searchDeviceFiles" -> {
+                    val query = call.argument<String>("query") ?: ""
+                    val files = searchDeviceFiles(query)
+                    result.success(files)
+                }
+
+                "renderPdfPageForOcr" -> {
+                    val contentUri = call.argument<String>("contentUri") ?: call.argument<String>("uri")
+                    if (contentUri.isNullOrBlank()) {
+                        result.error("INVALID_ARGS", "contentUri cannot be empty", null)
+                        return
+                    }
+                    val pageIndex = call.argument<Int>("pageIndex") ?: 0
+                    val renderResult = renderPdfPageForOcr(contentUri, pageIndex)
+                    result.success(renderResult)
+                }
+
+                "openFileUri" -> {
+                    val uri = call.argument<String>("uri") ?: call.argument<String>("contentUri")
+                    if (uri.isNullOrBlank()) {
+                        result.error("INVALID_ARGS", "uri cannot be empty", null)
+                        return
+                    }
+                    val mime = call.argument<String>("mimeType")
+                    val openResult = openFileUri(uri, mime)
+                    result.success(openResult)
                 }
 
                 else -> result.notImplemented()
@@ -327,6 +365,234 @@ class ActionExecutorChannel(
             else -> AccessibilityService.GLOBAL_ACTION_BACK
         }
         return MatrixAccessibilityService.executeGlobalAction(actionId)
+    }
+
+    /**
+     * Queries Android's MediaStore for images (screenshots, camera photos) and files (PDFs in Downloads/Documents)
+     * matching the requested keyword, or recent documents.
+     */
+    fun searchDeviceFiles(rawQuery: String): List<Map<String, Any>> {
+        val results = mutableListOf<Map<String, Any>>()
+        val cleanQuery = rawQuery.trim().lowercase()
+
+        // Extract potential search keywords
+        val keywords: List<String> = when {
+            cleanQuery.contains("passport") -> listOf("passport", "pass_port")
+            cleanQuery.contains("ticket") || cleanQuery.contains("boarding") -> listOf("ticket", "boarding", "flight", "booking", "train", "pnr")
+            cleanQuery.contains("invoice") || cleanQuery.contains("bill") || cleanQuery.contains("receipt") -> listOf("invoice", "bill", "receipt", "tax", "order")
+            cleanQuery.contains("statement") -> listOf("statement", "bank", "account")
+            cleanQuery.contains("id") || cleanQuery.contains("aadhaar") || cleanQuery.contains("pan") -> listOf("id", "aadhaar", "pan", "card", "license")
+            cleanQuery.contains("document") || cleanQuery.contains("doc") || cleanQuery.contains("pdf") -> listOf("passport", "ticket", "invoice", "receipt", "statement", "bill", "doc")
+            cleanQuery.isNotEmpty() -> cleanQuery.split(" ").filter { it.length > 2 }
+            else -> emptyList()
+        }
+
+        try {
+            // 1. Query Images (MediaStore Images)
+            val imageProjection = arrayOf(
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.MIME_TYPE,
+                MediaStore.Images.Media.DATE_MODIFIED,
+                MediaStore.Images.Media.SIZE,
+                MediaStore.MediaColumns.DATA
+            )
+
+            val imageCursor = context.contentResolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                imageProjection,
+                null,
+                null,
+                "${MediaStore.Images.Media.DATE_MODIFIED} DESC"
+            )
+
+            imageCursor?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED)
+                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+                val pathCol = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+
+                var count = 0
+                while (cursor.moveToNext() && count < 20) {
+                    val id = cursor.getLong(idCol)
+                    val name = cursor.getString(nameCol) ?: ""
+                    val mime = cursor.getString(mimeCol) ?: "image/jpeg"
+                    val date = cursor.getLong(dateCol) * 1000L
+                    val size = cursor.getLong(sizeCol)
+                    val path = if (pathCol != -1) cursor.getString(pathCol) ?: "" else ""
+
+                    val nameLower = name.lowercase()
+                    val matches = if (keywords.isEmpty()) true else keywords.any { nameLower.contains(it) }
+
+                    if (matches) {
+                        val contentUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                        results.add(mapOf(
+                            "uri" to contentUri.toString(),
+                            "displayName" to name,
+                            "mimeType" to mime,
+                            "dateModified" to date,
+                            "sizeBytes" to size,
+                            "filePath" to path
+                        ))
+                        count++
+                    }
+                }
+            }
+
+            // 2. Query Files (PDFs in Downloads/Documents via MediaStore Files)
+            val fileProjection = arrayOf(
+                MediaStore.Files.FileColumns._ID,
+                MediaStore.Files.FileColumns.DISPLAY_NAME,
+                MediaStore.Files.FileColumns.MIME_TYPE,
+                MediaStore.Files.FileColumns.DATE_MODIFIED,
+                MediaStore.Files.FileColumns.SIZE,
+                MediaStore.MediaColumns.DATA
+            )
+
+            val fileUri = MediaStore.Files.getContentUri("external")
+            val selection = "${MediaStore.Files.FileColumns.MIME_TYPE} = ? OR ${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE '%.pdf'"
+            val selectionArgs = arrayOf("application/pdf")
+
+            val fileCursor = context.contentResolver.query(
+                fileUri,
+                fileProjection,
+                selection,
+                selectionArgs,
+                "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
+            )
+
+            fileCursor?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+                val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
+                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+                val pathCol = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+
+                var count = 0
+                while (cursor.moveToNext() && count < 15) {
+                    val id = cursor.getLong(idCol)
+                    val name = cursor.getString(nameCol) ?: ""
+                    val mime = cursor.getString(mimeCol) ?: "application/pdf"
+                    val date = cursor.getLong(dateCol) * 1000L
+                    val size = cursor.getLong(sizeCol)
+                    val path = if (pathCol != -1) cursor.getString(pathCol) ?: "" else ""
+
+                    val nameLower = name.lowercase()
+                    val matches = if (keywords.isEmpty()) true else keywords.any { nameLower.contains(it) }
+
+                    if (matches) {
+                        val contentUri = ContentUris.withAppendedId(fileUri, id)
+                        results.add(mapOf(
+                            "uri" to contentUri.toString(),
+                            "displayName" to name,
+                            "mimeType" to mime,
+                            "dateModified" to date,
+                            "sizeBytes" to size,
+                            "filePath" to path
+                        ))
+                        count++
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error querying device files: ${e.message}")
+        }
+
+        return results
+    }
+
+    /**
+     * Renders page 0 (or [pageIndex]) of a PDF into a temporary JPEG bitmap file using
+     * native Android PdfRenderer, enabling on-device ML Kit OCR without heavy third-party libraries.
+     */
+    fun renderPdfPageForOcr(contentUriStr: String, pageIndex: Int = 0): Map<String, Any> {
+        try {
+            val uri = Uri.parse(contentUriStr)
+            val pfd: ParcelFileDescriptor = if (contentUriStr.startsWith("content://")) {
+                context.contentResolver.openFileDescriptor(uri, "r")
+                    ?: return mapOf("success" to false, "error" to "Could not open ContentResolver file descriptor")
+            } else {
+                val file = File(contentUriStr)
+                if (!file.exists()) {
+                    return mapOf("success" to false, "error" to "File does not exist: $contentUriStr")
+                }
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            }
+
+            pfd.use { descriptor ->
+                val pdfRenderer = PdfRenderer(descriptor)
+                pdfRenderer.use { renderer ->
+                    val pageCount = renderer.pageCount
+                    if (pageCount == 0) {
+                        return mapOf("success" to false, "error" to "PDF has 0 pages")
+                    }
+                    val targetPage = if (pageIndex in 0 until pageCount) pageIndex else 0
+                    val page = renderer.openPage(targetPage)
+                    page.use { pdfPage ->
+                        val scale = Math.min(2.0f, 2048f / Math.max(pdfPage.width, pdfPage.height).toFloat())
+                        val width = (pdfPage.width * scale).toInt()
+                        val height = (pdfPage.height * scale).toInt()
+                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+
+                        val canvas = Canvas(bitmap)
+                        canvas.drawColor(Color.WHITE)
+                        pdfPage.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+
+                        val cacheDir = File(context.cacheDir, "pdf_renders").apply { if (!exists()) mkdirs() }
+                        val tempFile = File(cacheDir, "pdf_page_${System.currentTimeMillis()}_$targetPage.jpg")
+                        FileOutputStream(tempFile).use { out ->
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                        }
+                        bitmap.recycle()
+
+                        return mapOf(
+                            "success" to true,
+                            "imagePath" to tempFile.absolutePath,
+                            "pageCount" to pageCount,
+                            "pageIndex" to targetPage
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error rendering PDF page: ${e.message}")
+            return mapOf("success" to false, "error" to (e.message ?: "PDF rendering error"))
+        }
+    }
+
+    /**
+     * Opens a document or image URI directly in the phone's native viewer (Gallery, Adobe, Drive, etc.).
+     */
+    fun openFileUri(uriStr: String, mimeType: String?): Map<String, Any> {
+        try {
+            val uri = Uri.parse(uriStr)
+            val resolvedMime = if (!mimeType.isNullOrBlank() && mimeType != "*/*") {
+                mimeType
+            } else {
+                val ext = MimeTypeMap.getFileExtensionFromUrl(uriStr)
+                if (ext.isNotEmpty()) {
+                    MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.lowercase()) ?: "application/*"
+                } else if (uriStr.contains(".pdf")) {
+                    "application/pdf"
+                } else {
+                    "image/*"
+                }
+            }
+
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, resolvedMime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            return mapOf("success" to true, "message" to "Opened file ($resolvedMime)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error opening file URI '$uriStr': ${e.message}")
+            return mapOf("success" to false, "error" to (e.message ?: "Failed to open file"))
+        }
     }
 
     fun cleanUp() {

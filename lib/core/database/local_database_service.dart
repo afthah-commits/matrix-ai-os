@@ -178,6 +178,29 @@ class LocalDatabaseService {
     }
   }
 
+  /// Returns decrypted memory nodes filtered by [category].
+  Future<List<DecryptedMemoryNode>> getDecryptedNodesByCategory(
+    String category, {
+    int limit = 50,
+  }) async {
+    _ensureInitialized();
+
+    final query = (_memoryBox!.query(MemoryNode_.category.equals(category))
+          ..order(MemoryNode_.timestamp, flags: Order.descending))
+        .build();
+
+    try {
+      final rawNodes = query.find().take(limit).toList();
+      final decryptedList = <DecryptedMemoryNode>[];
+      for (final raw in rawNodes) {
+        decryptedList.add(await decryptNode(raw));
+      }
+      return decryptedList;
+    } finally {
+      query.close();
+    }
+  }
+
   /// Returns total count of stored [MemoryNode] entries.
   int getMemoryNodeCount() {
     _ensureInitialized();

@@ -13,6 +13,7 @@ import 'package:matrix_ai_os/features/ai_brain/domain/services/intent_router_ser
 import 'package:matrix_ai_os/features/ai_brain/domain/services/knowledge_graph_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/offline_slm_manager.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/pii_masking_service.dart';
+import 'package:matrix_ai_os/features/ocr_vision/presentation/providers/ocr_vision_providers.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/proactive_context_engine.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/services/voice_assistant_service.dart';
 
@@ -93,6 +94,7 @@ final autonomousAgentServiceProvider = Provider<AutonomousAgentService>((ref) {
   return AutonomousAgentService(
     actionDispatcher: ref.watch(actionDispatcherServiceProvider),
     knowledgeGraphService: ref.watch(knowledgeGraphServiceProvider),
+    documentFinderService: ref.watch(deepDocumentFinderServiceProvider),
   );
 });
 

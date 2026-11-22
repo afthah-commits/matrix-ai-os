@@ -72,6 +72,11 @@ void main() {
               {'text': 'Search', 'isClickable': true},
               {'text': 'Settings', 'isClickable': true},
             ];
+          case 'openFileUri':
+            return {
+              'success': true,
+              'message': 'Opened file',
+            };
           default:
             return null;
         }
@@ -260,6 +265,21 @@ void main() {
       expect(actionResult.data, isA<List>());
       expect((actionResult.data as List).length, equals(2));
       expect(methodCalls.any((c) => c.method == 'inspectUiTree'), isTrue);
+    });
+
+    test('Executes openFile directly and opens file URI in native viewer', () async {
+      const phoneAction = PhoneAction(
+        id: 'act_file_1',
+        type: ActionType.openFile,
+        params: {'uri': 'content://media/external/files/1001', 'mimeType': 'application/pdf'},
+        description: 'Open file Air_India_Ticket.pdf',
+        isSensitive: false,
+      );
+
+      final result = await dispatcher.executeConfirmedAction(phoneAction);
+      expect(result.success, isTrue);
+      expect(result.message, contains('Opened file'));
+      expect(methodCalls.any((c) => c.method == 'openFileUri'), isTrue);
     });
 
     test('Checks accessibility service status and queries settings', () async {

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/action_dispatcher_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/knowledge_graph_service.dart';
+import 'package:matrix_ai_os/features/ocr_vision/domain/services/deep_document_finder_service.dart';
 
 /// Available autonomous agent tools for on-device and cloud agent reasoning.
 enum AgentToolType {
@@ -14,7 +15,8 @@ enum AgentToolType {
   clickUi('CLICK_UI', 'Find and click a visible UI element by label or description', isSensitive: false),
   typeText('TYPE_TEXT', 'Inject text into an editable input field on screen', isSensitive: false),
   scrollScreen('SCROLL_SCREEN', 'Scroll active window down, up, left, or right', isSensitive: false),
-  multiStepWorkflow('MULTI_STEP_WORKFLOW', 'Execute a multi-step UI automation sequence', isSensitive: false);
+  multiStepWorkflow('MULTI_STEP_WORKFLOW', 'Execute a multi-step UI automation sequence', isSensitive: false),
+  openFile('OPEN_FILE', 'Open a local document or file on the phone', isSensitive: false);
 
   final String code;
   final String description;
@@ -69,6 +71,7 @@ class AgentLoopResult {
   final String finalResponse;
   final PendingActionConfirmation? pendingConfirmation;
   final String? actionBadge;
+  final List<DocumentMatchResult> matchedDocuments;
 
   const AgentLoopResult({
     required this.hasAction,
@@ -76,6 +79,7 @@ class AgentLoopResult {
     required this.finalResponse,
     this.pendingConfirmation,
     this.actionBadge,
+    this.matchedDocuments = const [],
   });
 }
 
@@ -87,12 +91,15 @@ class AgentLoopResult {
 class AutonomousAgentService {
   final ActionDispatcherService _actionDispatcher;
   final KnowledgeGraphService _knowledgeGraphService;
+  final DeepDocumentFinderService? _documentFinderService;
 
   AutonomousAgentService({
     required ActionDispatcherService actionDispatcher,
     required KnowledgeGraphService knowledgeGraphService,
+    DeepDocumentFinderService? documentFinderService,
   })  : _actionDispatcher = actionDispatcher,
-        _knowledgeGraphService = knowledgeGraphService;
+        _knowledgeGraphService = knowledgeGraphService,
+        _documentFinderService = documentFinderService;
 
   /// System prompt instructions for Cloud LLMs to emit structured tool calls.
   static String getToolSystemInstructions() {
@@ -104,6 +111,7 @@ You have access to the following local Android OS tools:
 - SCROLL_SCREEN: {"direction": "down" | "up" | "left" | "right"} - Scroll active window or list.
 - MULTI_STEP_WORKFLOW: {"app": "<app_name>", "action": "search", "query": "<search_query>"} - Open app and automatically search for a query.
 - SEARCH_FILES_AND_OCR: {"query": "<search_term>"} - Search indexed OCR documents (passports, invoices, boarding passes).
+- OPEN_FILE: {"uri": "<file_uri>", "mimeType": "<optional_mime>"} - Open local document or image in native viewer.
 - QUERY_MEMORY: {"query": "<query>"} - Query local encrypted memories, screen time, expenses, and calls.
 - MAKE_CALL: {"phoneNumber": "<phone_number>"} - Place a phone call (requires user confirmation).
 - SEND_WHATSAPP: {"phoneNumber": "<number>", "message": "<text>"} - Compose WhatsApp message (requires user confirmation).
@@ -268,16 +276,38 @@ If the user request is an action that can be executed by a tool, you MUST respon
       );
     }
 
-    // 9. OCR & Document Search
+    // 9. Open File / Document
+    final openFileRegex = RegExp(
+      r'^(?:can you\s+)?(?:please\s+)?(?:open file|view file|open document)\s+(.+)$',
+      caseSensitive: false,
+    );
+    final openFileMatch = openFileRegex.firstMatch(userPrompt.trim());
+    if (openFileMatch != null) {
+      final uri = openFileMatch.group(1)!.trim();
+      return AgentToolCall(
+        toolName: AgentToolType.openFile.code,
+        arguments: {'uri': uri},
+        rationale: 'Open file "$uri" on device',
+        isSensitive: false,
+      );
+    }
+
+    // 10. Deep Document, Passport & OCR Search
     if (lower.contains('passport') ||
         lower.contains('boarding pass') ||
+        lower.contains('ticket') ||
         lower.contains('invoice') ||
         lower.contains('receipt') ||
-        lower.contains('find my document')) {
+        lower.contains('bill') ||
+        lower.contains('statement') ||
+        lower.contains('document') ||
+        lower.contains('search files') ||
+        lower.contains('find files') ||
+        lower.contains('find my doc')) {
       return AgentToolCall(
         toolName: AgentToolType.searchFilesAndOcr.code,
         arguments: {'query': userPrompt.trim()},
-        rationale: 'Searching personal OCR documents',
+        rationale: 'Searching personal OCR documents and device files',
         isSensitive: false,
       );
     }
@@ -418,11 +448,55 @@ If the user request is an action that can be executed by a tool, you MUST respon
       case 'SEARCH_FILES_AND_OCR':
         final query = (toolCall.arguments['query'] ?? userPrompt).toString();
         steps.add(AgentExecutionStep(
-          stepName: '📄 Searching OCR documents for "$query"...',
+          stepName: '🔍 Searching encrypted vault for "$query"...',
           status: 'running',
           timestamp: DateTime.now(),
         ));
 
+        // 1. Check DeepDocumentFinderService (Two-stage retrieval: vault + on-demand live scan)
+        if (_documentFinderService != null) {
+          final docMatches = await _documentFinderService.findDocument(query);
+
+          if (docMatches.isNotEmpty) {
+            final fromLive = docMatches.any((m) => m.fromLiveScan);
+            steps.add(AgentExecutionStep(
+              stepName: fromLive
+                  ? '📂 Scanned device storage & extracted text via ML Kit'
+                  : '✅ Retrieved ${docMatches.length} document(s) from encrypted vault',
+              status: 'success',
+              output: 'Found ${docMatches.length} matching document(s)',
+              timestamp: DateTime.now(),
+            ));
+
+            final buffer = StringBuffer();
+            buffer.writeln('📄 **Found ${docMatches.length} Matching Document(s):**\n');
+            for (final doc in docMatches) {
+              buffer.writeln('• **${doc.title}** (`${doc.category}`)');
+              if (doc.extractedSummary.isNotEmpty) {
+                buffer.writeln('  *Summary:* ${doc.extractedSummary}');
+              }
+              if (doc.keyFields.isNotEmpty) {
+                final fields = doc.keyFields.entries
+                    .where((e) => e.value != null && e.value.toString().isNotEmpty && e.value.toString() != '[]')
+                    .map((e) => '${e.key}: ${e.value}')
+                    .join(', ');
+                if (fields.isNotEmpty) {
+                  buffer.writeln('  *Key Details:* $fields');
+                }
+              }
+            }
+
+            return AgentLoopResult(
+              hasAction: true,
+              steps: steps,
+              finalResponse: buffer.toString().trim(),
+              actionBadge: 'Document Finder',
+              matchedDocuments: docMatches,
+            );
+          }
+        }
+
+        // 2. Fallback to KnowledgeGraphService
         final result = await _knowledgeGraphService.queryRelatedMemories(query);
         final docs = result.memories.where((m) => m.category == 'ocr_doc').toList();
 
@@ -451,7 +525,7 @@ If the user request is an action that can be executed by a tool, you MUST respon
           );
         } else {
           steps.add(AgentExecutionStep(
-            stepName: '📄 No OCR documents found matching "$query"',
+            stepName: '📄 No documents found matching "$query"',
             status: 'success',
             output: 'Zero matching documents',
             timestamp: DateTime.now(),
@@ -460,11 +534,38 @@ If the user request is an action that can be executed by a tool, you MUST respon
           return AgentLoopResult(
             hasAction: true,
             steps: steps,
-            finalResponse: 'No matching OCR documents or receipts were found in your local Knowledge Graph. '
-                'You can tap "Index Gallery OCR" in the Dashboard to index gallery documents.',
+            finalResponse: 'No matching OCR documents or files were found for "$query". '
+                'Make sure the document is located in your device Gallery or Downloads/Documents.',
             actionBadge: 'Vision OCR',
           );
         }
+
+      case 'OPEN_FILE':
+        final uri = (toolCall.arguments['uri'] ?? toolCall.arguments['fileUri'] ?? '').toString();
+        final mime = toolCall.arguments['mimeType']?.toString();
+        steps.add(AgentExecutionStep(
+          stepName: '📂 Opening document file...',
+          status: 'running',
+          timestamp: DateTime.now(),
+        ));
+
+        final res = await _actionDispatcher.openFileUri(uri, mimeType: mime);
+        final success = res['success'] == true;
+        steps.add(AgentExecutionStep(
+          stepName: success ? '✅ Opened file in viewer' : '❌ Failed to open file',
+          status: success ? 'success' : 'failed',
+          output: res['error']?.toString() ?? res['message']?.toString(),
+          timestamp: DateTime.now(),
+        ));
+
+        return AgentLoopResult(
+          hasAction: true,
+          steps: steps,
+          finalResponse: success
+              ? '✅ Opened document in your phone\'s default viewer.'
+              : 'Could not open file: ${res['error'] ?? 'Unknown error'}',
+          actionBadge: 'Document Viewer',
+        );
 
       case 'QUERY_MEMORY':
         final query = (toolCall.arguments['query'] ?? userPrompt).toString();
@@ -794,6 +895,16 @@ If the user request is an action that can be executed by a tool, you MUST respon
         type: ActionType.scrollUi,
         params: call.arguments,
         description: 'Scroll screen $dir',
+        isSensitive: false,
+      );
+    } else if (call.toolName == 'OPEN_FILE') {
+      final uri = (call.arguments['uri'] ?? call.arguments['fileUri'] ?? '').toString();
+      final mime = call.arguments['mimeType']?.toString();
+      return PhoneAction(
+        id: 'act_$nowMs',
+        type: ActionType.openFile,
+        params: {'uri': uri, 'mimeType': ?mime},
+        description: 'Open file "$uri"',
         isSensitive: false,
       );
     }

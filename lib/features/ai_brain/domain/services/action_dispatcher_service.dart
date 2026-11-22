@@ -11,7 +11,8 @@ enum ActionType {
   clickUi('Click UI Element', isSensitive: false),
   typeText('Type Text', isSensitive: false),
   scrollUi('Scroll Screen', isSensitive: false),
-  inspectUi('Inspect UI Tree', isSensitive: false);
+  inspectUi('Inspect UI Tree', isSensitive: false),
+  openFile('Open Document / File', isSensitive: false);
 
   final String displayName;
   final bool isSensitive;
@@ -423,6 +424,18 @@ class ActionDispatcherService {
             action: action,
             data: tree,
           );
+
+        case ActionType.openFile:
+          final uri = (action.params['uri'] ?? action.params['fileUri'] ?? '').toString();
+          final mime = action.params['mimeType'] as String?;
+          final res = await openFileUri(uri, mimeType: mime);
+          final success = res['success'] == true;
+          return ActionResult(
+            success: success,
+            message: res['message']?.toString() ?? (success ? 'Opened file' : 'Failed to open file'),
+            action: action,
+            data: res,
+          );
       }
     } catch (e) {
       return ActionResult(
@@ -430,6 +443,19 @@ class ActionDispatcherService {
         message: 'Action execution failed: $e',
         action: action,
       );
+    }
+  }
+
+  /// Opens a local image or PDF document URI directly in the phone's native viewer.
+  Future<Map<String, dynamic>> openFileUri(String uri, {String? mimeType}) async {
+    try {
+      final res = await _channel.invokeMapMethod<String, dynamic>(
+        'openFileUri',
+        {'uri': uri, 'mimeType': ?mimeType},
+      );
+      return res ?? {'success': false, 'error': 'No response from native channel'};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
     }
   }
 

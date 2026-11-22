@@ -6,6 +6,7 @@ import 'package:matrix_ai_os/features/ai_brain/domain/services/autonomous_agent_
 import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/controllers/chat_controller.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/screens/ai_settings_modal.dart';
+import 'package:matrix_ai_os/features/ocr_vision/domain/services/deep_document_finder_service.dart';
 
 /// Full-featured, privacy-first conversational Assistant Chat Screen
 /// with Voice UI (STT/TTS) and Action Confirmation Gates.
@@ -21,6 +22,8 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
   final ScrollController _scrollController = ScrollController();
 
   static const _quickPrompts = [
+    'Find My Passport',
+    'Search my documents',
     'Open WhatsApp',
     'Open Camera',
     'Open Settings',
@@ -499,6 +502,12 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
               _buildExecutionStepsCard(msg.executionSteps, primaryEmerald, neonCyan, amberAlert),
             ],
 
+            // Matched Document / Passport / Receipt Card with One-Tap Open
+            if (msg.matchedDocuments.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              _buildMatchedDocumentsCard(msg.matchedDocuments, primaryEmerald, neonCyan),
+            ],
+
             // Action Confirmation Card for Sensitive Actions
             if (msg.pendingAction != null) ...[
               const SizedBox(height: 12),
@@ -516,6 +525,154 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildMatchedDocumentsCard(
+    List<DocumentMatchResult> docs,
+    Color primaryEmerald,
+    Color neonCyan,
+  ) {
+    final controller = ref.read(chatControllerProvider.notifier);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: docs.map((doc) {
+        Color badgeColor = primaryEmerald;
+        IconData docIcon = Icons.description;
+
+        switch (doc.category) {
+          case 'PASSPORT_ID':
+            badgeColor = primaryEmerald;
+            docIcon = Icons.badge;
+            break;
+          case 'TICKET_BOOKING':
+            badgeColor = neonCyan;
+            docIcon = Icons.confirmation_number;
+            break;
+          case 'INVOICE_RECEIPT':
+            badgeColor = const Color(0xFFF59E0B);
+            docIcon = Icons.receipt_long;
+            break;
+          case 'BANK_STATEMENT':
+            badgeColor = const Color(0xFF3B82F6);
+            docIcon = Icons.account_balance;
+            break;
+        }
+
+        return Container(
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: badgeColor.withValues(alpha: 0.5)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header with Category Badge
+              Row(
+                children: [
+                  Icon(docIcon, color: badgeColor, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      doc.title,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: badgeColor.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: badgeColor.withValues(alpha: 0.4), width: 0.8),
+                    ),
+                    child: Text(
+                      doc.category,
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
+                        color: badgeColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              if (doc.extractedSummary.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  doc.extractedSummary,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Colors.white70,
+                    height: 1.35,
+                  ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+
+              // Key details
+              if (doc.keyFields.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: doc.keyFields.entries.where((e) {
+                    final v = e.value?.toString() ?? '';
+                    return v.isNotEmpty && v != '[]';
+                  }).take(3).map((e) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '${e.key}: ${e.value}',
+                        style: const TextStyle(fontSize: 10, color: Colors.white60),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+
+              if (doc.fileUri.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => controller.openDocumentFile(doc.fileUri, mimeType: doc.mimeType),
+                    icon: const Icon(Icons.open_in_new, size: 14),
+                    label: const Text(
+                      'Open File on Device',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: badgeColor,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 
