@@ -1,0 +1,109 @@
+{
+  "_note1": "KEEP THIS FILE! Check it into a version control system (VCS) like git.",
+  "_note2": "ObjectBox manages crucial IDs for your object model. See docs for details.",
+  "_note3": "If you have VCS merge conflicts, you must resolve them according to ObjectBox docs.",
+  "entities": [
+    {
+      "id": "1:4949445878726251363",
+      "lastPropertyId": "6:4332388156577872895",
+      "name": "DailySummary",
+      "properties": [
+        {
+          "id": "1:652188257680100219",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:1518575357305670613",
+          "name": "date",
+          "indexId": "1:823835178392414998",
+          "type": 9,
+          "flags": 2080
+        },
+        {
+          "id": "3:6846834304789355555",
+          "name": "summaryText",
+          "type": 9
+        },
+        {
+          "id": "4:2381278074738965083",
+          "name": "totalScreenTimeMinutes",
+          "type": 6
+        },
+        {
+          "id": "5:4894839095428547133",
+          "name": "totalSpent",
+          "type": 8
+        },
+        {
+          "id": "6:4332388156577872895",
+          "name": "createdAt",
+          "indexId": "2:3785321795784997871",
+          "type": 10,
+          "flags": 8
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "2:2658421642093508179",
+      "lastPropertyId": "7:1776457816924493784",
+      "name": "MemoryNode",
+      "properties": [
+        {
+          "id": "1:3562460610473402009",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:6189508799184576294",
+          "name": "category",
+          "indexId": "3:4299417229830193527",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "3:6334130567751733572",
+          "name": "content",
+          "type": 9
+        },
+        {
+          "id": "4:1568027017045130769",
+          "name": "metadataJson",
+          "type": 9
+        },
+        {
+          "id": "5:3990223686847587935",
+          "name": "timestamp",
+          "indexId": "4:6257583940295634206",
+          "type": 10,
+          "flags": 8
+        },
+        {
+          "id": "6:6296781121799249056",
+          "name": "fileUri",
+          "type": 9
+        },
+        {
+          "id": "7:1776457816924493784",
+          "name": "isPinned",
+          "type": 1
+        }
+      ],
+      "relations": []
+    }
+  ],
+  "lastEntityId": "2:2658421642093508179",
+  "lastIndexId": "4:6257583940295634206",
+  "lastRelationId": "0:0",
+  "lastSequenceId": "0:0",
+  "modelVersion": 5,
+  "modelVersionParserMinimum": 5,
+  "retiredEntityUids": [],
+  "retiredIndexUids": [],
+  "retiredPropertyUids": [],
+  "retiredRelationUids": [],
+  "version": 1
+}
