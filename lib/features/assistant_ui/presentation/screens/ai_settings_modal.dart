@@ -127,6 +127,7 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
 
     final slmManager = ref.watch(offlineSlmManagerProvider);
     final mcpRegistry = ref.watch(mcpPluginRegistryProvider);
+    final wakeWordBridge = ref.watch(wakeWordBridgeServiceProvider);
 
     return Container(
       constraints: BoxConstraints(
@@ -472,6 +473,116 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
                       ),
                     );
                   }),
+
+                  const SizedBox(height: 20),
+
+                  // 4. Hands-Free Wake Word & Android Default Assistant
+                  Row(
+                    children: const [
+                      Icon(Icons.mic_none_rounded, color: neonCyan, size: 16),
+                      SizedBox(width: 6),
+                      Text(
+                        'HANDS-FREE WAKE WORD & DIGITAL ASSISTANT',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.8,
+                          color: neonCyan,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: surfaceCard,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: borderColor),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  '"Hey Matrix" Wake Word',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  wakeWordBridge.isServiceRunning
+                                      ? 'Active: listening in background'
+                                      : 'Disabled: tap switch to activate',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: wakeWordBridge.isServiceRunning
+                                        ? primaryEmerald
+                                        : Colors.white54,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Switch(
+                              value: wakeWordBridge.isServiceRunning,
+                              activeThumbColor: primaryEmerald,
+                              onChanged: (val) async {
+                                if (val) {
+                                  await wakeWordBridge.startWakeWordService();
+                                } else {
+                                  await wakeWordBridge.stopWakeWordService();
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                        const Divider(color: borderColor, height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: const [
+                                Text(
+                                  'Default Digital Assistant',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'Trigger via long-press Power / Home button',
+                                  style: TextStyle(fontSize: 11, color: Colors.white54),
+                                ),
+                              ],
+                            ),
+                            OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: neonCyan,
+                                side: const BorderSide(color: neonCyan),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () => wakeWordBridge.openDefaultAssistantSettings(),
+                              child: const Text('Configure', style: TextStyle(fontSize: 11)),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
 
                   const SizedBox(height: 16),
 

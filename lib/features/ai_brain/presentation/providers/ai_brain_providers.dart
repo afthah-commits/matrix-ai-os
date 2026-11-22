@@ -16,6 +16,7 @@ import 'package:matrix_ai_os/features/ai_brain/domain/services/pii_masking_servi
 import 'package:matrix_ai_os/features/ocr_vision/presentation/providers/ocr_vision_providers.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/proactive_context_engine.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/services/voice_assistant_service.dart';
+import 'package:matrix_ai_os/features/assistant_ui/presentation/services/wake_word_bridge_service.dart';
 
 /// Provider for the On-Device Personal Knowledge Graph engine.
 final knowledgeGraphServiceProvider = Provider<KnowledgeGraphService>((ref) {
@@ -69,6 +70,13 @@ final accessibilityEnabledProvider = FutureProvider<bool>((ref) async {
 /// ChangeNotifierProvider for native Voice Assistant (STT & TTS).
 final voiceAssistantServiceProvider = ChangeNotifierProvider<VoiceAssistantService>((ref) {
   return VoiceAssistantService();
+});
+
+/// ChangeNotifierProvider for native Wake-Word ("Hey Matrix") and Assistant Bridge.
+final wakeWordBridgeServiceProvider = ChangeNotifierProvider<WakeWordBridgeService>((ref) {
+  final service = WakeWordBridgeService();
+  service.init();
+  return service;
 });
 
 /// ChangeNotifierProvider for on-demand downloadable edge SLMs.

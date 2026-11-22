@@ -5,6 +5,7 @@ import 'package:matrix_ai_os/core/utils/formatters.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/proactive_context_engine.dart';
 import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/controllers/dashboard_controller.dart';
+import 'package:matrix_ai_os/features/assistant_ui/presentation/services/wake_word_bridge_service.dart';
 import 'package:matrix_ai_os/features/device_ingestion/presentation/providers/device_ingestion_providers.dart';
 import 'package:matrix_ai_os/features/ocr_vision/presentation/providers/ocr_vision_providers.dart';
 
@@ -254,6 +255,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                       onOpenAccessibility: () => ref
                           .read(actionDispatcherServiceProvider)
                           .openAccessibilitySettings(),
+                      wakeWordBridge: ref.watch(wakeWordBridgeServiceProvider),
                       surfaceColor: surfaceCardColor,
                       borderColor: borderColor,
                       emerald: primaryEmerald,
@@ -605,6 +607,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
     required DeviceIngestionController permController,
     required bool isAccessibilityGranted,
     required VoidCallback onOpenAccessibility,
+    required WakeWordBridgeService wakeWordBridge,
     required Color surfaceColor,
     required Color borderColor,
     required Color emerald,
@@ -718,6 +721,58 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
             title: 'Accessibility (Action & Screen Reader)',
             isGranted: isAccessibilityGranted,
             onAction: onOpenAccessibility,
+            actionLabel: 'Settings',
+            emerald: emerald,
+          ),
+          const SizedBox(height: 8),
+
+          // 8. Hands-Free "Hey Matrix" Wake Word Service
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: wakeWordBridge.isServiceRunning ? emerald : Colors.redAccent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Hands-Free "Hey Matrix" Wake Word',
+                      style: TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ],
+                ),
+                Transform.scale(
+                  scale: 0.8,
+                  child: Switch(
+                    value: wakeWordBridge.isServiceRunning,
+                    activeThumbColor: emerald,
+                    onChanged: (enabled) async {
+                      if (enabled) {
+                        await wakeWordBridge.startWakeWordService();
+                      } else {
+                        await wakeWordBridge.stopWakeWordService();
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // 9. Android Default Digital Assistant (System Assist Settings)
+          _buildPermissionRow(
+            title: 'Default Assistant (Long-Press Power)',
+            isGranted: false,
+            onAction: () => wakeWordBridge.openDefaultAssistantSettings(),
             actionLabel: 'Settings',
             emerald: emerald,
           ),
