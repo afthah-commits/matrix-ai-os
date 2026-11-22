@@ -201,6 +201,12 @@ class LocalDatabaseService {
     return _summaryBox!.count();
   }
 
+  /// Retrieves all stored [DailySummary] records.
+  List<DailySummary> getAllDailySummaries() {
+    _ensureInitialized();
+    return _summaryBox!.getAll();
+  }
+
   /// Returns total count of indexed [KnowledgeEdge] graph links.
   int getKnowledgeEdgeCount() {
     _ensureInitialized();

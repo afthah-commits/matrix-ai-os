@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/services/action_dispatcher_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/byok_key_manager.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/hybrid_rag_orchestrator.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/intent_router_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
+import 'package:matrix_ai_os/features/assistant_ui/presentation/services/voice_assistant_service.dart';
 
 /// Individual message in the Matrix AI OS Assistant chat session.
 @immutable
@@ -18,6 +20,8 @@ class ChatMessage {
   final UserIntent? intent;
   final bool isOfflineEngine;
   final String? providerUsed;
+  final PendingActionConfirmation? pendingAction;
+  final ActionResult? actionResult;
 
   const ChatMessage({
     required this.id,
@@ -30,6 +34,8 @@ class ChatMessage {
     this.intent,
     this.isOfflineEngine = false,
     this.providerUsed,
+    this.pendingAction,
+    this.actionResult,
   });
 
   bool get hasBadges =>
@@ -38,7 +44,8 @@ class ChatMessage {
           localMemoriesUsed > 0 ||
           webResultsUsed > 0 ||
           isOfflineEngine ||
-          intent != null);
+          intent != null ||
+          actionResult != null);
 }
 
 /// State for the Assistant Chat session.
@@ -75,16 +82,22 @@ class ChatState {
   }
 }
 
-/// StateNotifier controlling the Assistant Chat interaction and RAG pipeline.
+/// StateNotifier controlling the Assistant Chat interaction, Action Dispatcher, and RAG pipeline.
 class ChatController extends StateNotifier<ChatState> {
   final HybridRagOrchestrator _orchestrator;
   final ByokKeyManager _byokManager;
+  final ActionDispatcherService _actionDispatcher;
+  final VoiceAssistantService _voiceService;
 
   ChatController({
     required HybridRagOrchestrator orchestrator,
     required ByokKeyManager byokManager,
+    required ActionDispatcherService actionDispatcher,
+    required VoiceAssistantService voiceService,
   })  : _orchestrator = orchestrator,
         _byokManager = byokManager,
+        _actionDispatcher = actionDispatcher,
+        _voiceService = voiceService,
         super(
           ChatState(
             messages: [
@@ -93,6 +106,7 @@ class ChatController extends StateNotifier<ChatState> {
                 text: 'Greetings. I am **Matrix AI OS**.\n\n'
                     '• **Zero Data Leakage:** All your data remains AES-256 encrypted locally.\n'
                     '• **Local PII Masking:** Account numbers, phone numbers, and IDs are redacted before any cloud query.\n'
+                    '• **Action Execution:** Voice/chat actions for calls, WhatsApp, screen reading with Human-in-the-Loop gates.\n'
                     '• **Live Web Search:** Real-time news, scores, and general knowledge via DuckDuckGo.\n'
                     '• **Air-Gapped Mode:** Toggle 100% offline local processing anytime in Settings.\n\n'
                     'How may I assist you today?',
@@ -120,7 +134,7 @@ class ChatController extends StateNotifier<ChatState> {
     await _loadSettings();
   }
 
-  /// Sends a user prompt through the Hybrid RAG pipeline.
+  /// Sends a user prompt through Action Dispatcher or Hybrid RAG pipeline.
   Future<void> sendMessage(String text) async {
     final clean = text.trim();
     if (clean.isEmpty || state.isLoading) return;
@@ -139,6 +153,68 @@ class ChatController extends StateNotifier<ChatState> {
     );
 
     try {
+      // 1. Check if user query matches a phone action command
+      final action = _actionDispatcher.parseActionIntent(clean);
+      if (action != null) {
+        if (action.isSensitive) {
+          // Human-in-the-Loop Confirmation Gate
+          final pending = await _actionDispatcher.processAction(action) as PendingActionConfirmation;
+
+          final confirmationMsg = ChatMessage(
+            id: 'pending_${DateTime.now().millisecondsSinceEpoch}',
+            text: '⚠️ **Action Confirmation Gate**\n\n'
+                'Please review and approve before executing:\n'
+                '• **Action:** ${action.description}\n'
+                '• **Type:** ${action.type.displayName}',
+            isUser: false,
+            timestamp: DateTime.now(),
+            pendingAction: pending,
+            isOfflineEngine: true,
+            providerUsed: 'Action Dispatcher',
+          );
+
+          state = state.copyWith(
+            messages: [...state.messages, confirmationMsg],
+            isLoading: false,
+          );
+
+          await _voiceService.speak('Please confirm action: ${action.description}');
+          return;
+        } else {
+          // Safe action: execute directly
+          final result = await _actionDispatcher.executeConfirmedAction(action);
+
+          String displayText;
+          if (action.type == ActionType.readScreen) {
+            final screenText = result.data as String? ?? '';
+            displayText = screenText.isNotEmpty
+                ? '📱 **Foreground Screen Content:**\n\n$screenText'
+                : '📱 Screen is empty or Accessibility Service is not enabled.';
+          } else {
+            displayText = '⚡ **Action Executed:** ${result.message}';
+          }
+
+          final actionMsg = ChatMessage(
+            id: 'action_${DateTime.now().millisecondsSinceEpoch}',
+            text: displayText,
+            isUser: false,
+            timestamp: DateTime.now(),
+            actionResult: result,
+            isOfflineEngine: true,
+            providerUsed: 'Action Executor',
+          );
+
+          state = state.copyWith(
+            messages: [...state.messages, actionMsg],
+            isLoading: false,
+          );
+
+          await _voiceService.speak(result.message);
+          return;
+        }
+      }
+
+      // 2. Standard conversational Hybrid RAG query
       final response = await _orchestrator.processQuery(clean);
 
       final aiMsg = ChatMessage(
@@ -158,6 +234,9 @@ class ChatController extends StateNotifier<ChatState> {
         messages: [...state.messages, aiMsg],
         isLoading: false,
       );
+
+      // Voice response if enabled
+      await _voiceService.speak(response.text);
     } catch (e) {
       final errorMsg = ChatMessage(
         id: 'error_${DateTime.now().millisecondsSinceEpoch}',
@@ -173,6 +252,45 @@ class ChatController extends StateNotifier<ChatState> {
         errorMessage: e.toString(),
       );
     }
+  }
+
+  /// Confirms and executes an approved pending action from the UI.
+  Future<void> confirmPendingAction(PendingActionConfirmation pending) async {
+    final result = await _actionDispatcher.executeConfirmedAction(pending.action);
+
+    final resultMsg = ChatMessage(
+      id: 'approved_${DateTime.now().millisecondsSinceEpoch}',
+      text: result.success
+          ? '✅ **Action Approved & Executed:**\n${result.message}'
+          : '⚠️ **Action Failed:** ${result.message}',
+      isUser: false,
+      timestamp: DateTime.now(),
+      actionResult: result,
+      isOfflineEngine: true,
+      providerUsed: 'Action Executor',
+    );
+
+    state = state.copyWith(
+      messages: [...state.messages, resultMsg],
+    );
+
+    await _voiceService.speak(result.message);
+  }
+
+  /// Cancels a pending action from the UI.
+  void cancelPendingAction(PendingActionConfirmation pending) {
+    final cancelMsg = ChatMessage(
+      id: 'canceled_${DateTime.now().millisecondsSinceEpoch}',
+      text: '❌ **Action Canceled:** User rejected "${pending.action.description}".',
+      isUser: false,
+      timestamp: DateTime.now(),
+      isOfflineEngine: true,
+      providerUsed: 'Safety Gate',
+    );
+
+    state = state.copyWith(
+      messages: [...state.messages, cancelMsg],
+    );
   }
 
   void clearChat() {
@@ -196,8 +314,12 @@ final chatControllerProvider =
     StateNotifierProvider<ChatController, ChatState>((ref) {
   final orchestrator = ref.watch(hybridRagOrchestratorProvider);
   final byokManager = ref.watch(byokKeyManagerProvider);
+  final actionDispatcher = ref.watch(actionDispatcherServiceProvider);
+  final voiceService = ref.watch(voiceAssistantServiceProvider);
   return ChatController(
     orchestrator: orchestrator,
     byokManager: byokManager,
+    actionDispatcher: actionDispatcher,
+    voiceService: voiceService,
   );
 });

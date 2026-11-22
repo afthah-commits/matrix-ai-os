@@ -8,6 +8,7 @@ class MainActivity : FlutterActivity() {
 
     private var deviceStatsChannel: DeviceStatsChannel? = null
     private var notificationChannel: MethodChannel? = null
+    private var actionExecutorChannel: ActionExecutorChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -19,6 +20,9 @@ class MainActivity : FlutterActivity() {
 
         // 2. Register Notification Streaming MethodChannel
         notificationChannel = MethodChannel(messenger, NOTIFICATION_CHANNEL_NAME)
+
+        // 3. Register ActionExecutor MethodChannel
+        actionExecutorChannel = ActionExecutorChannel(applicationContext, messenger)
 
         // Forward live background notifications to Flutter if engine is running
         MatrixNotificationListener.listenerCallback = { notificationData ->
@@ -37,6 +41,8 @@ class MainActivity : FlutterActivity() {
         deviceStatsChannel = null
         notificationChannel?.setMethodCallHandler(null)
         notificationChannel = null
+        actionExecutorChannel?.cleanUp()
+        actionExecutorChannel = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 

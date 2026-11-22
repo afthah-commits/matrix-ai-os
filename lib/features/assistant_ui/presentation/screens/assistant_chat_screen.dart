@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/services/action_dispatcher_service.dart';
+import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/controllers/chat_controller.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/screens/ai_settings_modal.dart';
 
-/// Full-featured, privacy-first conversational Assistant Chat Screen.
+/// Full-featured, privacy-first conversational Assistant Chat Screen
+/// with Voice UI (STT/TTS) and Action Confirmation Gates.
 class AssistantChatScreen extends ConsumerStatefulWidget {
   const AssistantChatScreen({super.key});
 
@@ -20,8 +23,10 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
     'How much did I spend this week?',
     'Who called me recently?',
     'What is my passport number?',
+    'Read my screen',
+    'Open YouTube',
+    'Call +91 98765 43210',
     'Latest tech news',
-    'Compare my screen time with average daily smartphone usage',
   ];
 
   @override
@@ -55,10 +60,12 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
   @override
   Widget build(BuildContext context) {
     final chatState = ref.watch(chatControllerProvider);
+    final voiceService = ref.watch(voiceAssistantServiceProvider);
 
     const primaryEmerald = Color(0xFF10B981);
     const neonCyan = Color(0xFF06B6D4);
     const accentViolet = Color(0xFF8B5CF6);
+    const amberAlert = Color(0xFFF59E0B);
     const surfaceCard = Color(0xFF111827);
     const bgContainer = Color(0xFF0B0F19);
     const borderColor = Color(0xFF1F2937);
@@ -115,6 +122,18 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
           ],
         ),
         actions: [
+          // Voice Output Speaker Toggle
+          IconButton(
+            tooltip: voiceService.isTtsEnabled ? 'Mute AI Voice' : 'Enable AI Voice',
+            icon: Icon(
+              voiceService.isTtsEnabled ? Icons.volume_up : Icons.volume_off,
+              color: voiceService.isTtsEnabled ? primaryEmerald : Colors.white38,
+              size: 20,
+            ),
+            onPressed: () {
+              voiceService.toggleTts(!voiceService.isTtsEnabled);
+            },
+          ),
           IconButton(
             tooltip: 'Clear Chat',
             icon: const Icon(Icons.delete_sweep_outlined, color: Colors.white60, size: 20),
@@ -131,6 +150,44 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
       ),
       body: Column(
         children: [
+          // Live listening pulse indicator bar
+          if (voiceService.isListening)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: amberAlert.withValues(alpha: 0.15),
+              child: Row(
+                children: [
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: amberAlert,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      voiceService.lastRecognizedWords.isNotEmpty
+                          ? 'Listening: "${voiceService.lastRecognizedWords}"'
+                          : 'Listening for your voice command...',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: amberAlert,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => voiceService.stopListening(),
+                    child: const Text('Stop', style: TextStyle(color: amberAlert, fontSize: 11)),
+                  ),
+                ],
+              ),
+            ),
+
           // Messages List
           Expanded(
             child: ListView.builder(
@@ -147,6 +204,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                   primaryEmerald,
                   neonCyan,
                   accentViolet,
+                  amberAlert,
                   surfaceCard,
                   borderColor,
                 );
@@ -182,7 +240,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
             ),
           ),
 
-          // Input Bar
+          // Input Bar with Mic button
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: const BoxDecoration(
@@ -192,6 +250,42 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
             child: SafeArea(
               child: Row(
                 children: [
+                  // Microphone Push-to-Talk button
+                  GestureDetector(
+                    onTap: () async {
+                      if (voiceService.isListening) {
+                        await voiceService.stopListening();
+                      } else {
+                        await voiceService.startListening(
+                          onResult: (text) {
+                            if (text.trim().isNotEmpty) {
+                              _handleSend(text);
+                            }
+                          },
+                        );
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: voiceService.isListening
+                            ? amberAlert.withValues(alpha: 0.2)
+                            : surfaceCard,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: voiceService.isListening ? amberAlert : borderColor,
+                          width: voiceService.isListening ? 1.5 : 1.0,
+                        ),
+                      ),
+                      child: Icon(
+                        voiceService.isListening ? Icons.mic : Icons.mic_none,
+                        color: voiceService.isListening ? amberAlert : primaryEmerald,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
                   Expanded(
                     child: TextField(
                       controller: _inputController,
@@ -199,8 +293,8 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _handleSend(),
                       decoration: InputDecoration(
-                        hintText: 'Ask Matrix (e.g. spending, calls, passport, news)...',
-                        hintStyle: const TextStyle(fontSize: 12, color: Colors.white38),
+                        hintText: 'Ask Matrix or command (e.g. Call, WhatsApp, Read screen)...',
+                        hintStyle: const TextStyle(fontSize: 11, color: Colors.white38),
                         filled: true,
                         fillColor: surfaceCard,
                         contentPadding: const EdgeInsets.symmetric(
@@ -254,6 +348,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
     Color primaryEmerald,
     Color neonCyan,
     Color accentViolet,
+    Color amberAlert,
     Color surfaceCard,
     Color borderColor,
   ) {
@@ -304,7 +399,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 6),
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.88,
+          maxWidth: MediaQuery.of(context).size.width * 0.9,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
@@ -315,7 +410,10 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
             bottomLeft: Radius.circular(16),
             bottomRight: Radius.circular(16),
           ),
-          border: Border.all(color: borderColor),
+          border: Border.all(
+            color: msg.pendingAction != null ? amberAlert.withValues(alpha: 0.5) : borderColor,
+            width: msg.pendingAction != null ? 1.5 : 1.0,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -326,6 +424,12 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                 spacing: 6,
                 runSpacing: 4,
                 children: [
+                  if (msg.pendingAction != null)
+                    _buildBadge(
+                      Icons.shield_outlined,
+                      'Human Confirmation Required',
+                      amberAlert,
+                    ),
                   if (msg.intent != null)
                     _buildBadge(
                       Icons.category_outlined,
@@ -377,6 +481,13 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                 height: 1.45,
               ),
             ),
+
+            // Action Confirmation Card for Sensitive Actions
+            if (msg.pendingAction != null) ...[
+              const SizedBox(height: 12),
+              _buildActionConfirmationCard(msg.pendingAction!, primaryEmerald, amberAlert),
+            ],
+
             const SizedBox(height: 6),
             Align(
               alignment: Alignment.bottomRight,
@@ -387,6 +498,88 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildActionConfirmationCard(
+    PendingActionConfirmation pending,
+    Color primaryEmerald,
+    Color amberAlert,
+  ) {
+    final controller = ref.read(chatControllerProvider.notifier);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: amberAlert.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                pending.action.type == ActionType.callContact
+                    ? Icons.phone_forwarded
+                    : Icons.send,
+                color: amberAlert,
+                size: 16,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  pending.action.description,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => controller.cancelPendingAction(pending),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    side: const BorderSide(color: Colors.redAccent),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () => controller.confirmPendingAction(pending),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryEmerald,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Approve Action',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

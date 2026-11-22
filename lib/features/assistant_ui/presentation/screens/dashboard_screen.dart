@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:matrix_ai_os/core/constants/app_constants.dart';
 import 'package:matrix_ai_os/core/utils/formatters.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/services/proactive_context_engine.dart';
 import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/controllers/dashboard_controller.dart';
 import 'package:matrix_ai_os/features/device_ingestion/presentation/providers/device_ingestion_providers.dart';
@@ -80,7 +81,7 @@ class DashboardScreen extends ConsumerWidget {
                 Icon(Icons.hub_outlined, color: accentViolet, size: 14),
                 SizedBox(width: 4),
                 Text(
-                  'PHASE 4.1',
+                  'PHASE 5.1',
                   style: TextStyle(
                     color: accentViolet,
                     fontSize: 11,
@@ -112,6 +113,16 @@ class DashboardScreen extends ConsumerWidget {
                     // System Banner
                     _buildSystemBanner(primaryEmerald),
                     const SizedBox(height: 16),
+
+                    // Proactive Context Insights
+                    _buildProactiveInsightsSection(
+                      ref,
+                      surfaceCardColor,
+                      borderColor,
+                      primaryEmerald,
+                      neonCyan,
+                      amberAlert,
+                    ),
 
                     // Row 1: Encryption & Storage Size
                     Row(
@@ -212,6 +223,11 @@ class DashboardScreen extends ConsumerWidget {
                     _buildPermissionsCard(
                       permState: permState,
                       permController: permController,
+                      isAccessibilityGranted:
+                          ref.watch(accessibilityEnabledProvider).value ?? false,
+                      onOpenAccessibility: () => ref
+                          .read(actionDispatcherServiceProvider)
+                          .openAccessibilitySettings(),
                       surfaceColor: surfaceCardColor,
                       borderColor: borderColor,
                       emerald: primaryEmerald,
@@ -452,9 +468,113 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
+  Widget _buildProactiveInsightsSection(
+    WidgetRef ref,
+    Color surfaceColor,
+    Color borderColor,
+    Color emerald,
+    Color cyan,
+    Color amber,
+  ) {
+    final insightsAsync = ref.watch(proactiveInsightsProvider);
+
+    return insightsAsync.when(
+      data: (insights) {
+        if (insights.isEmpty) return const SizedBox.shrink();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.bolt, color: amber, size: 16),
+                const SizedBox(width: 6),
+                const Text(
+                  'PROACTIVE CONTEXT INSIGHTS',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...insights.map((insight) {
+              final color = insight.type == InsightType.spendingSpike
+                  ? Colors.redAccent
+                  : insight.type == InsightType.screenTimeNudge
+                      ? amber
+                      : cyan;
+              final icon = insight.type == InsightType.spendingSpike
+                  ? Icons.trending_up
+                  : insight.type == InsightType.screenTimeNudge
+                      ? Icons.timer
+                      : Icons.flight_takeoff;
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: surfaceColor,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: color.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(icon, color: color, size: 16),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            insight.title,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: color,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            insight.message,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.white70,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+            const SizedBox(height: 12),
+          ],
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (error, stack) => const SizedBox.shrink(),
+    );
+  }
+
   Widget _buildPermissionsCard({
     required DevicePermissionsState permState,
     required DeviceIngestionController permController,
+    required bool isAccessibilityGranted,
+    required VoidCallback onOpenAccessibility,
     required Color surfaceColor,
     required Color borderColor,
     required Color emerald,
@@ -536,6 +656,16 @@ class DashboardScreen extends ConsumerWidget {
             isGranted: permState.galleryPermissionGranted,
             onAction: () => permController.requestGalleryPermission(),
             actionLabel: 'Grant',
+            emerald: emerald,
+          ),
+          const SizedBox(height: 8),
+
+          // 5. Accessibility Service Permission (Phase 5 Action & Screen Context)
+          _buildPermissionRow(
+            title: 'Accessibility (Action & Screen Reader)',
+            isGranted: isAccessibilityGranted,
+            onAction: onOpenAccessibility,
+            actionLabel: 'Settings',
             emerald: emerald,
           ),
         ],
