@@ -71,19 +71,19 @@ class DashboardScreen extends ConsumerWidget {
             margin: const EdgeInsets.only(right: 16),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: accentViolet.withValues(alpha: 0.15),
+              color: primaryEmerald.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: accentViolet.withValues(alpha: 0.4)),
+              border: Border.all(color: primaryEmerald.withValues(alpha: 0.4)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(Icons.hub_outlined, color: accentViolet, size: 14),
-                SizedBox(width: 4),
+              children: [
+                const Icon(Icons.verified_rounded, color: primaryEmerald, size: 14),
+                const SizedBox(width: 4),
                 Text(
-                  'PHASE 5.1',
-                  style: TextStyle(
-                    color: accentViolet,
+                  'v${AppConstants.appVersion}',
+                  style: const TextStyle(
+                    color: primaryEmerald,
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 0.5,
@@ -379,6 +379,10 @@ class DashboardScreen extends ConsumerWidget {
                       surfaceColor: const Color(0xFF070B14),
                       borderColor: borderColor,
                     ),
+                    const SizedBox(height: 20),
+
+                    // Production Release Footer
+                    _buildReleaseFooter(),
                   ],
                 ),
               ),
@@ -961,6 +965,59 @@ class DashboardScreen extends ConsumerWidget {
                 );
               },
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReleaseFooter() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.shield_outlined, size: 14, color: Color(0xFF10B981)),
+              const SizedBox(width: 6),
+              Text(
+                '${AppConstants.appName} v${AppConstants.appVersion}',
+                style: const TextStyle(
+                  color: Color(0xFFE2E8F0),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'RELEASE',
+                  style: TextStyle(
+                    color: Color(0xFF10B981),
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            '100% Privacy-First • Hardware AES-256-GCM • Air-Gapped Local Core • <30MB Footprint',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Color(0xFF64748B),
+              fontSize: 10,
+              letterSpacing: 0.3,
+            ),
+          ),
         ],
       ),
     );
