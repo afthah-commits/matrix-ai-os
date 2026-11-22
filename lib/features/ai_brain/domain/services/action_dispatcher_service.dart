@@ -7,7 +7,11 @@ enum ActionType {
   sendWhatsApp('Send WhatsApp', isSensitive: true),
   openApp('Open Application', isSensitive: false),
   readScreen('Read Foreground Screen', isSensitive: false),
-  globalNav('System Navigation', isSensitive: false);
+  globalNav('System Navigation', isSensitive: false),
+  clickUi('Click UI Element', isSensitive: false),
+  typeText('Type Text', isSensitive: false),
+  scrollUi('Scroll Screen', isSensitive: false),
+  inspectUi('Inspect UI Tree', isSensitive: false);
 
   final String displayName;
   final bool isSensitive;
@@ -74,6 +78,21 @@ class ActionDispatcherService {
   final MethodChannel _channel;
 
   static const String channelName = 'com.matrixai.os/action_executor';
+
+  /// Dangerous financial and destructive action keywords that require explicit
+  /// Human-in-the-Loop user approval before executing clicks.
+  static const List<String> dangerousFinancialKeywords = [
+    'pay now',
+    'confirm payment',
+    'make payment',
+    'send money',
+    'proceed to pay',
+    'transfer funds',
+    'transfer money',
+    'delete account',
+    'wipe data',
+    'authorize payment',
+  ];
 
   ActionDispatcherService({MethodChannel? channel})
       : _channel = channel ?? const MethodChannel(channelName);
@@ -167,10 +186,10 @@ class ActionDispatcherService {
     // 5. Open Application (Dynamic App Launcher)
     // E.g.: "Open WhatsApp", "Launch Camera", "Please open Settings", "Can you launch YouTube"
     final openAppRegex = RegExp(
-      r'(?:can you\s+)?(?:please\s+)?(?:open|launch|start|switch to)\s+([a-zA-Z0-9_\s\-]+)',
+      r'^(?:can you\s+)?(?:please\s+)?(?:open|launch|start|switch to)\s+([a-zA-Z0-9_\s\-]+)$',
       caseSensitive: false,
     );
-    final openMatch = openAppRegex.firstMatch(text);
+    final openMatch = openAppRegex.firstMatch(text.trim());
     if (openMatch != null) {
       final rawAppName = openMatch.group(1)!.trim();
       final cleanAppName = rawAppName.toLowerCase();
@@ -181,6 +200,76 @@ class ActionDispatcherService {
         params: {'packageName': pkg, 'appName': rawAppName},
         description: 'Open application "$rawAppName"',
         isSensitive: false,
+      );
+    }
+
+    // 6. UI Inspection / Tree Elements
+    if (lower.contains('inspect ui') ||
+        lower.contains('inspect ui tree') ||
+        lower.contains('inspect screen elements') ||
+        lower == 'ui tree') {
+      return PhoneAction(
+        id: 'act_$nowMs',
+        type: ActionType.inspectUi,
+        params: const {},
+        description: 'Inspect interactive UI tree elements via Accessibility',
+        isSensitive: false,
+      );
+    }
+
+    // 7. Scroll Screen (down, up, left, right)
+    // E.g.: "Scroll down", "Swipe up", "Scroll right"
+    final scrollRegex = RegExp(
+      r'^(?:can you\s+)?(?:please\s+)?(?:scroll|swipe)\s+(down|up|left|right)$',
+      caseSensitive: false,
+    );
+    final scrollMatch = scrollRegex.firstMatch(text.trim());
+    if (scrollMatch != null) {
+      final direction = scrollMatch.group(1)!.toLowerCase();
+      return PhoneAction(
+        id: 'act_$nowMs',
+        type: ActionType.scrollUi,
+        params: {'direction': direction},
+        description: 'Scroll screen $direction',
+        isSensitive: false,
+      );
+    }
+
+    // 8. Type / Inject Text
+    // E.g.: 'Type "Flutter" into Search', 'Enter "Hello World"', 'Write "Matrix OS"'
+    final typeRegex = RegExp(
+      r'''^(?:can you\s+)?(?:please\s+)?(?:type|enter|write)\s+["']?([^"']+)["']?(?:\s+(?:in|into)\s+([a-zA-Z0-9_\s]+))?$''',
+      caseSensitive: false,
+    );
+    final typeMatch = typeRegex.firstMatch(text.trim());
+    if (typeMatch != null) {
+      final textToInject = typeMatch.group(1)!.trim();
+      final targetHint = typeMatch.group(2)?.trim();
+      return PhoneAction(
+        id: 'act_$nowMs',
+        type: ActionType.typeText,
+        params: {'text': textToInject, 'targetHint': ?targetHint},
+        description: 'Type "$textToInject"${targetHint != null ? ' into "$targetHint"' : ''}',
+        isSensitive: false,
+      );
+    }
+
+    // 9. Click / Tap UI Element
+    // E.g.: "Click on Search", "Tap Subscribe", "Click Next", "Click Pay Now"
+    final clickRegex = RegExp(
+      r'^(?:can you\s+)?(?:please\s+)?(?:click on|click|tap on|tap)\s+(.+)$',
+      caseSensitive: false,
+    );
+    final clickMatch = clickRegex.firstMatch(text.trim());
+    if (clickMatch != null) {
+      final target = clickMatch.group(1)!.trim();
+      final isDangerous = dangerousFinancialKeywords.any((k) => target.toLowerCase().contains(k));
+      return PhoneAction(
+        id: 'act_$nowMs',
+        type: ActionType.clickUi,
+        params: {'targetText': target},
+        description: 'Click on "$target"',
+        isSensitive: isDangerous,
       );
     }
 
@@ -286,6 +375,54 @@ class ActionDispatcherService {
             message: 'Performed global action: $navAction',
             action: action,
           );
+
+        case ActionType.clickUi:
+          final target = action.params['targetText'] as String? ?? '';
+          final res = await clickUiElement(target);
+          final success = res['success'] == true;
+          final msg = res['message']?.toString() ??
+              (success ? 'Clicked on "$target"' : 'Could not click on "$target"');
+          return ActionResult(
+            success: success,
+            message: msg,
+            action: action,
+            data: res,
+          );
+
+        case ActionType.typeText:
+          final text = action.params['text'] as String? ?? '';
+          final hint = action.params['targetHint'] as String?;
+          final res = await typeUiText(text, targetHint: hint);
+          final success = res['success'] == true;
+          final msg = res['message']?.toString() ??
+              (success ? 'Typed "$text"' : 'Failed to type text');
+          return ActionResult(
+            success: success,
+            message: msg,
+            action: action,
+            data: res,
+          );
+
+        case ActionType.scrollUi:
+          final direction = action.params['direction'] as String? ?? 'down';
+          final res = await scrollUi(direction);
+          final success = res['success'] == true;
+          final msg = success ? 'Scrolled screen $direction' : 'Failed to scroll screen $direction';
+          return ActionResult(
+            success: success,
+            message: msg,
+            action: action,
+            data: res,
+          );
+
+        case ActionType.inspectUi:
+          final tree = await inspectUiTree();
+          return ActionResult(
+            success: true,
+            message: 'Inspected ${tree.length} interactive UI elements',
+            action: action,
+            data: tree,
+          );
       }
     } catch (e) {
       return ActionResult(
@@ -293,6 +430,57 @@ class ActionDispatcherService {
         message: 'Action execution failed: $e',
         action: action,
       );
+    }
+  }
+
+  /// Clicks a visible UI element matching [targetText] via Accessibility Service.
+  Future<Map<String, dynamic>> clickUiElement(String targetText) async {
+    try {
+      final res = await _channel.invokeMapMethod<String, dynamic>(
+        'clickUiElement',
+        {'targetText': targetText},
+      );
+      return res ?? {'success': false, 'error': 'No response from native channel'};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Injects text into a focused or hinted editable input field via Accessibility Service.
+  Future<Map<String, dynamic>> typeUiText(String text, {String? targetHint}) async {
+    try {
+      final res = await _channel.invokeMapMethod<String, dynamic>(
+        'typeUiText',
+        {'text': text, 'targetHint': ?targetHint},
+      );
+      return res ?? {'success': false, 'error': 'No response from native channel'};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Scrolls the active window in the specified [direction] ('down', 'up', 'left', 'right').
+  Future<Map<String, dynamic>> scrollUi(String direction) async {
+    try {
+      final res = await _channel.invokeMapMethod<String, dynamic>(
+        'scrollUi',
+        {'direction': direction},
+      );
+      return res ?? {'success': false, 'error': 'No response from native channel'};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Retrieves structured interactive UI elements from the active window.
+  Future<List<Map<String, dynamic>>> inspectUiTree() async {
+    try {
+      final list = await _channel.invokeListMethod<dynamic>('inspectUiTree');
+      if (list == null) return [];
+      return list.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+    } catch (e) {
+      debugPrint('Error inspecting UI tree: $e');
+      return [];
     }
   }
 

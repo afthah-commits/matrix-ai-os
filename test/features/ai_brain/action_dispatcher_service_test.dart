@@ -39,6 +39,39 @@ void main() {
             return true;
           case 'checkAccessibilityEnabled':
             return true;
+          case 'clickUiElement':
+            final target = (call.arguments as Map)['targetText']?.toString().toLowerCase() ?? '';
+            if (target.contains('pay now')) {
+              return {
+                'success': false,
+                'isFinancialBlocked': true,
+                'message': 'Safety Block: Action matches critical financial/payment action.',
+              };
+            }
+            return {
+              'success': true,
+              'message': 'Clicked on "$target"',
+              'matchedText': target,
+            };
+          case 'typeUiText':
+            final text = (call.arguments as Map)['text']?.toString() ?? '';
+            return {
+              'success': true,
+              'message': 'Injected text: "$text"',
+              'injectedText': text,
+            };
+          case 'scrollUi':
+            final dir = (call.arguments as Map)['direction']?.toString() ?? 'down';
+            return {
+              'success': true,
+              'direction': dir,
+              'method': 'ACTION_SCROLL',
+            };
+          case 'inspectUiTree':
+            return [
+              {'text': 'Search', 'isClickable': true},
+              {'text': 'Settings', 'isClickable': true},
+            ];
           default:
             return null;
         }
@@ -96,6 +129,46 @@ void main() {
       expect(action.params['action'], equals('back'));
     });
 
+    test('Parses Click UI intents correctly (safe)', () {
+      final action = dispatcher.parseActionIntent('Click on Search');
+      expect(action, isNotNull);
+      expect(action!.type, equals(ActionType.clickUi));
+      expect(action.isSensitive, isFalse);
+      expect(action.params['targetText'], equals('Search'));
+    });
+
+    test('Parses Click UI intents with dangerous financial keyword as sensitive', () {
+      final action = dispatcher.parseActionIntent('Click on Pay Now');
+      expect(action, isNotNull);
+      expect(action!.type, equals(ActionType.clickUi));
+      expect(action.isSensitive, isTrue);
+      expect(action.params['targetText'], equals('Pay Now'));
+    });
+
+    test('Parses Type Text intents correctly', () {
+      final action = dispatcher.parseActionIntent('Type "Flutter AI" into Search');
+      expect(action, isNotNull);
+      expect(action!.type, equals(ActionType.typeText));
+      expect(action.isSensitive, isFalse);
+      expect(action.params['text'], equals('Flutter AI'));
+      expect(action.params['targetHint'], equals('Search'));
+    });
+
+    test('Parses Scroll Screen intents correctly', () {
+      final action = dispatcher.parseActionIntent('Scroll down');
+      expect(action, isNotNull);
+      expect(action!.type, equals(ActionType.scrollUi));
+      expect(action.isSensitive, isFalse);
+      expect(action.params['direction'], equals('down'));
+    });
+
+    test('Parses Inspect UI tree intents correctly', () {
+      final action = dispatcher.parseActionIntent('inspect ui tree');
+      expect(action, isNotNull);
+      expect(action!.type, equals(ActionType.inspectUi));
+      expect(action.isSensitive, isFalse);
+    });
+
     test('Returns null for generic conversational queries without action commands', () {
       final action = dispatcher.parseActionIntent('How much did I spend yesterday?');
       expect(action, isNull);
@@ -131,6 +204,62 @@ void main() {
       expect(actionResult.success, isTrue);
       expect(actionResult.data, contains('Wi-Fi, Bluetooth, Apps'));
       expect(methodCalls.any((c) => c.method == 'getCurrentScreenContext'), isTrue);
+    });
+
+    test('Sensitive action (Financial Click) yields PendingActionConfirmation', () async {
+      final action = dispatcher.parseActionIntent('Click on Pay Now')!;
+      final result = await dispatcher.processAction(action);
+
+      expect(result, isA<PendingActionConfirmation>());
+      final pending = result as PendingActionConfirmation;
+      expect(pending.action.type, equals(ActionType.clickUi));
+      expect(pending.promptMessage, contains('Confirm Action: Click on "Pay Now"'));
+      expect(methodCalls.where((c) => c.method == 'clickUiElement'), isEmpty);
+    });
+
+    test('Safe Click UI executes directly and invokes native channel', () async {
+      final action = dispatcher.parseActionIntent('Click on Search')!;
+      final result = await dispatcher.processAction(action);
+
+      expect(result, isA<ActionResult>());
+      final actionResult = result as ActionResult;
+      expect(actionResult.success, isTrue);
+      expect(actionResult.message, contains('Clicked on "search"'));
+      expect(methodCalls.any((c) => c.method == 'clickUiElement'), isTrue);
+    });
+
+    test('Safe Type Text executes directly and invokes native channel', () async {
+      final action = dispatcher.parseActionIntent('Type "Flutter" into Search')!;
+      final result = await dispatcher.processAction(action);
+
+      expect(result, isA<ActionResult>());
+      final actionResult = result as ActionResult;
+      expect(actionResult.success, isTrue);
+      expect(actionResult.message, contains('Flutter'));
+      expect(methodCalls.any((c) => c.method == 'typeUiText'), isTrue);
+    });
+
+    test('Safe Scroll UI executes directly and invokes native channel', () async {
+      final action = dispatcher.parseActionIntent('Scroll down')!;
+      final result = await dispatcher.processAction(action);
+
+      expect(result, isA<ActionResult>());
+      final actionResult = result as ActionResult;
+      expect(actionResult.success, isTrue);
+      expect(actionResult.message, contains('Scrolled screen down'));
+      expect(methodCalls.any((c) => c.method == 'scrollUi'), isTrue);
+    });
+
+    test('Safe Inspect UI executes directly and returns tree elements', () async {
+      final action = dispatcher.parseActionIntent('inspect ui tree')!;
+      final result = await dispatcher.processAction(action);
+
+      expect(result, isA<ActionResult>());
+      final actionResult = result as ActionResult;
+      expect(actionResult.success, isTrue);
+      expect(actionResult.data, isA<List>());
+      expect((actionResult.data as List).length, equals(2));
+      expect(methodCalls.any((c) => c.method == 'inspectUiTree'), isTrue);
     });
 
     test('Checks accessibility service status and queries settings', () async {

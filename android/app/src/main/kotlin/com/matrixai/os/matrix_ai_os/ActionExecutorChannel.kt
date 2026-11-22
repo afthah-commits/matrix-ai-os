@@ -95,6 +95,38 @@ class ActionExecutorChannel(
                     result.success(success)
                 }
 
+                "clickUiElement" -> {
+                    val targetText = call.argument<String>("targetText") ?: call.argument<String>("text")
+                    if (targetText.isNullOrBlank()) {
+                        result.error("INVALID_ARGS", "targetText cannot be empty", null)
+                        return
+                    }
+                    val clickResult = MatrixAccessibilityService.clickNodeByText(targetText)
+                    result.success(clickResult)
+                }
+
+                "typeUiText" -> {
+                    val textToInject = call.argument<String>("text")
+                    if (textToInject == null) {
+                        result.error("INVALID_ARGS", "text cannot be null", null)
+                        return
+                    }
+                    val targetHint = call.argument<String>("targetHint")
+                    val typeResult = MatrixAccessibilityService.inputTextIntoField(textToInject, targetHint)
+                    result.success(typeResult)
+                }
+
+                "scrollUi" -> {
+                    val direction = call.argument<String>("direction") ?: "down"
+                    val scrollResult = MatrixAccessibilityService.scrollScreen(direction)
+                    result.success(scrollResult)
+                }
+
+                "inspectUiTree" -> {
+                    val tree = MatrixAccessibilityService.getInteractiveUiTree()
+                    result.success(tree)
+                }
+
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {

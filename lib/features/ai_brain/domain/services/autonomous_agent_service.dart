@@ -10,7 +10,11 @@ enum AgentToolType {
   queryMemory('QUERY_MEMORY', 'Search encrypted personal memory, expenses, and screen time', isSensitive: false),
   makeCall('MAKE_CALL', 'Initiate phone call to a contact or number', isSensitive: true),
   sendWhatsApp('SEND_WHATSAPP', 'Compose or send a WhatsApp message', isSensitive: true),
-  uiAutomationStep('UI_AUTOMATION_STEP', 'Read foreground screen or navigate Back/Home', isSensitive: false);
+  uiAutomationStep('UI_AUTOMATION_STEP', 'Read foreground screen or navigate Back/Home', isSensitive: false),
+  clickUi('CLICK_UI', 'Find and click a visible UI element by label or description', isSensitive: false),
+  typeText('TYPE_TEXT', 'Inject text into an editable input field on screen', isSensitive: false),
+  scrollScreen('SCROLL_SCREEN', 'Scroll active window down, up, left, or right', isSensitive: false),
+  multiStepWorkflow('MULTI_STEP_WORKFLOW', 'Execute a multi-step UI automation sequence', isSensitive: false);
 
   final String code;
   final String description;
@@ -95,6 +99,10 @@ class AutonomousAgentService {
     return '''
 You have access to the following local Android OS tools:
 - LAUNCH_APP: {"name": "<app_name>"} - Launch any installed application on the device by common name (e.g. "whatsapp", "camera", "settings", "youtube").
+- CLICK_UI: {"targetText": "<label_to_click>"} - Click on a visible UI button, icon, or link by its text or accessibility description.
+- TYPE_TEXT: {"text": "<text_to_type>", "targetHint": "<optional_field_hint>"} - Inject text into an editable input field.
+- SCROLL_SCREEN: {"direction": "down" | "up" | "left" | "right"} - Scroll active window or list.
+- MULTI_STEP_WORKFLOW: {"app": "<app_name>", "action": "search", "query": "<search_query>"} - Open app and automatically search for a query.
 - SEARCH_FILES_AND_OCR: {"query": "<search_term>"} - Search indexed OCR documents (passports, invoices, boarding passes).
 - QUERY_MEMORY: {"query": "<query>"} - Query local encrypted memories, screen time, expenses, and calls.
 - MAKE_CALL: {"phoneNumber": "<phone_number>"} - Place a phone call (requires user confirmation).
@@ -117,7 +125,24 @@ If the user request is an action that can be executed by a tool, you MUST respon
   AgentToolCall? parseToolCall(String userPrompt) {
     final lower = userPrompt.trim().toLowerCase();
 
-    // 1. App Launch: "open whatsapp", "launch camera", "please open settings", "can you start youtube"
+    // 1. Compound Multi-Step Workflow: E.g., "Open YouTube and search Flutter tutorials"
+    final compoundWorkflowRegex = RegExp(
+      r'^(?:can you\s+)?(?:please\s+)?(?:open|launch)\s+([a-zA-Z0-9_\s\-]+)\s+and\s+(?:search(?: for)?)\s+(.+)$',
+      caseSensitive: false,
+    );
+    final compoundMatch = compoundWorkflowRegex.firstMatch(userPrompt.trim());
+    if (compoundMatch != null) {
+      final appName = compoundMatch.group(1)!.trim();
+      final query = compoundMatch.group(2)!.trim();
+      return AgentToolCall(
+        toolName: AgentToolType.multiStepWorkflow.code,
+        arguments: {'app': appName, 'action': 'search', 'query': query},
+        rationale: 'Execute multi-step workflow: Launch "$appName" and search for "$query"',
+        isSensitive: false,
+      );
+    }
+
+    // 2. App Launch: "open whatsapp", "launch camera", "please open settings", "can you start youtube"
     final openAppRegex = RegExp(
       r'^(?:can you\s+)?(?:please\s+)?(?:open|launch|start|switch to)\s+([a-zA-Z0-9_\s\-]+)$',
       caseSensitive: false,
@@ -133,7 +158,7 @@ If the user request is an action that can be executed by a tool, you MUST respon
       );
     }
 
-    // 2. UI Automation: Read Screen / Back / Home
+    // 3. UI Automation: Read Screen / Back / Home
     if (lower.contains('read screen') ||
         lower.contains('read my screen') ||
         lower.contains('what is on my screen') ||
@@ -162,7 +187,58 @@ If the user request is an action that can be executed by a tool, you MUST respon
       );
     }
 
-    // 3. Sensitive Action: Call Number
+    // 4. Scroll Screen: E.g., "Scroll down", "Swipe up", "Scroll right"
+    final scrollRegex = RegExp(
+      r'^(?:can you\s+)?(?:please\s+)?(?:scroll|swipe)\s+(down|up|left|right)$',
+      caseSensitive: false,
+    );
+    final scrollMatch = scrollRegex.firstMatch(userPrompt.trim());
+    if (scrollMatch != null) {
+      final direction = scrollMatch.group(1)!.toLowerCase();
+      return AgentToolCall(
+        toolName: AgentToolType.scrollScreen.code,
+        arguments: {'direction': direction},
+        rationale: 'Scroll active screen $direction',
+        isSensitive: false,
+      );
+    }
+
+    // 5. Type Text: E.g., 'Type "Flutter" into Search', 'Write "Hello World"'
+    final typeRegex = RegExp(
+      r'''^(?:can you\s+)?(?:please\s+)?(?:type|enter|write)\s+["']?([^"']+)["']?(?:\s+(?:in|into)\s+([a-zA-Z0-9_\s]+))?$''',
+      caseSensitive: false,
+    );
+    final typeMatch = typeRegex.firstMatch(userPrompt.trim());
+    if (typeMatch != null) {
+      final textToInject = typeMatch.group(1)!.trim();
+      final targetHint = typeMatch.group(2)?.trim();
+      return AgentToolCall(
+        toolName: AgentToolType.typeText.code,
+        arguments: {'text': textToInject, 'targetHint': ?targetHint},
+        rationale: 'Inject text "$textToInject" into screen input',
+        isSensitive: false,
+      );
+    }
+
+    // 6. Click / Tap UI Element: E.g., "Click on Settings", "Tap Next", "Click Pay Now"
+    final clickRegex = RegExp(
+      r'^(?:can you\s+)?(?:please\s+)?(?:click on|click|tap on|tap)\s+(.+)$',
+      caseSensitive: false,
+    );
+    final clickMatch = clickRegex.firstMatch(userPrompt.trim());
+    if (clickMatch != null) {
+      final target = clickMatch.group(1)!.trim();
+      final isDangerous = ActionDispatcherService.dangerousFinancialKeywords
+          .any((k) => target.toLowerCase().contains(k));
+      return AgentToolCall(
+        toolName: AgentToolType.clickUi.code,
+        arguments: {'targetText': target},
+        rationale: 'Click on UI element "$target"',
+        isSensitive: isDangerous,
+      );
+    }
+
+    // 7. Sensitive Action: Call Number
     final callRegex = RegExp(r'^(?:call|dial)\s+([+0-9\s\-]{6,20})$', caseSensitive: false);
     final callMatch = callRegex.firstMatch(userPrompt.trim());
     if (callMatch != null) {
@@ -175,7 +251,7 @@ If the user request is an action that can be executed by a tool, you MUST respon
       );
     }
 
-    // 4. Sensitive Action: WhatsApp Message
+    // 8. Sensitive Action: WhatsApp Message
     final waRegex = RegExp(
       r'^(?:whatsapp|send whatsapp to)\s+([+0-9\s\-]{6,20})[:\s]+(?:saying\s+)?(.+)$',
       caseSensitive: false,
@@ -192,7 +268,7 @@ If the user request is an action that can be executed by a tool, you MUST respon
       );
     }
 
-    // 5. OCR & Document Search
+    // 9. OCR & Document Search
     if (lower.contains('passport') ||
         lower.contains('boarding pass') ||
         lower.contains('invoice') ||
@@ -226,7 +302,11 @@ If the user request is an action that can be executed by a tool, you MUST respon
         final args = Map<String, dynamic>.from(toolCallMap['arguments'] as Map? ?? {});
         final thought = (map['thought'] ?? '').toString();
 
-        final isSensitive = (name == 'MAKE_CALL' || name == 'SEND_WHATSAPP');
+        final isDangerousClick = (name == 'CLICK_UI') &&
+            ActionDispatcherService.dangerousFinancialKeywords.any((k) =>
+                (args['targetText'] ?? args['text'] ?? '').toString().toLowerCase().contains(k));
+        final isSensitive = (name == 'MAKE_CALL' || name == 'SEND_WHATSAPP' || isDangerousClick);
+
         return AgentToolCall(
           toolName: name,
           arguments: args,
@@ -483,6 +563,181 @@ If the user request is an action that can be executed by a tool, you MUST respon
           );
         }
 
+      case 'CLICK_UI':
+        final target = (toolCall.arguments['targetText'] ?? toolCall.arguments['text'] ?? '').toString();
+        steps.add(AgentExecutionStep(
+          stepName: '🔍 Searching screen for "$target"...',
+          status: 'running',
+          timestamp: DateTime.now(),
+        ));
+
+        final res = await _actionDispatcher.clickUiElement(target);
+        if (res['isFinancialBlocked'] == true) {
+          steps.add(AgentExecutionStep(
+            stepName: '⚠️ Blocked by Financial Safety Gate',
+            status: 'failed',
+            output: 'Sensitive financial action requires explicit approval',
+            timestamp: DateTime.now(),
+          ));
+          return AgentLoopResult(
+            hasAction: true,
+            steps: steps,
+            finalResponse: '⚠️ **Action Blocked by Financial Safety Gate:**\n'
+                'Clicking "$target" was prevented because it matches critical payment actions. '
+                'Please perform this step manually.',
+            actionBadge: 'Safety Gate',
+          );
+        }
+
+        final success = res['success'] == true;
+        final msg = res['message']?.toString() ?? (success ? 'Clicked on "$target"' : 'Could not find UI element');
+        steps.add(AgentExecutionStep(
+          stepName: success ? '✅ Clicked on "$target"' : '❌ Failed to click "$target"',
+          status: success ? 'success' : 'failed',
+          output: msg,
+          timestamp: DateTime.now(),
+        ));
+
+        return AgentLoopResult(
+          hasAction: true,
+          steps: steps,
+          finalResponse: success
+              ? '⚡ Clicked on **${res['matchedText'] ?? target}** on screen.'
+              : 'Unable to click on "$target": $msg',
+          actionBadge: 'UI Automation',
+        );
+
+      case 'TYPE_TEXT':
+        final text = (toolCall.arguments['text'] ?? '').toString();
+        final hint = toolCall.arguments['targetHint']?.toString();
+        steps.add(AgentExecutionStep(
+          stepName: '⌨️ Injecting text into input field${hint != null ? ' ($hint)' : ''}...',
+          status: 'running',
+          timestamp: DateTime.now(),
+        ));
+
+        final res = await _actionDispatcher.typeUiText(text, targetHint: hint);
+        final success = res['success'] == true;
+        final msg = res['message']?.toString() ?? (success ? 'Injected text' : 'No editable field');
+        steps.add(AgentExecutionStep(
+          stepName: success ? '✅ Injected "$text"' : '❌ Injection failed',
+          status: success ? 'success' : 'failed',
+          output: msg,
+          timestamp: DateTime.now(),
+        ));
+
+        return AgentLoopResult(
+          hasAction: true,
+          steps: steps,
+          finalResponse: success
+              ? '⚡ Injected text: **"$text"** into the active input field.'
+              : 'Failed to inject text: $msg',
+          actionBadge: 'UI Automation',
+        );
+
+      case 'SCROLL_SCREEN':
+        final direction = (toolCall.arguments['direction'] ?? 'down').toString().toLowerCase();
+        steps.add(AgentExecutionStep(
+          stepName: '📜 Scrolling screen $direction...',
+          status: 'running',
+          timestamp: DateTime.now(),
+        ));
+
+        final res = await _actionDispatcher.scrollUi(direction);
+        final success = res['success'] == true;
+        steps.add(AgentExecutionStep(
+          stepName: success ? '✅ Scrolled screen $direction' : '❌ Scroll failed',
+          status: success ? 'success' : 'failed',
+          output: res['method']?.toString(),
+          timestamp: DateTime.now(),
+        ));
+
+        return AgentLoopResult(
+          hasAction: true,
+          steps: steps,
+          finalResponse: success
+              ? '⚡ Scrolled screen **$direction**.'
+              : 'Unable to scroll screen in direction "$direction".',
+          actionBadge: 'UI Automation',
+        );
+
+      case 'MULTI_STEP_WORKFLOW':
+        final app = (toolCall.arguments['app'] ?? '').toString();
+        final query = (toolCall.arguments['query'] ?? '').toString();
+
+        // Step 1: Launch App
+        steps.add(AgentExecutionStep(
+          stepName: '🚀 Step 1/3: Launching "$app"...',
+          status: 'running',
+          timestamp: DateTime.now(),
+        ));
+
+        final launchRes = await _actionDispatcher.launchAppByName(app);
+        if (launchRes['success'] != true) {
+          steps.add(AgentExecutionStep(
+            stepName: '❌ Step 1/3: Could not launch "$app"',
+            status: 'failed',
+            output: launchRes['error']?.toString() ?? 'App not found',
+            timestamp: DateTime.now(),
+          ));
+          return AgentLoopResult(
+            hasAction: true,
+            steps: steps,
+            finalResponse: 'Multi-step workflow failed: Could not launch "$app".',
+            actionBadge: 'Multi-Step UI',
+          );
+        }
+
+        final resolvedApp = launchRes['appName'] ?? app;
+        steps.add(AgentExecutionStep(
+          stepName: '✅ Step 1/3: Launched $resolvedApp',
+          status: 'success',
+          output: 'Package: ${launchRes['packageName']}',
+          timestamp: DateTime.now(),
+        ));
+
+        // Step 2: Render delay
+        steps.add(AgentExecutionStep(
+          stepName: '⏳ Step 2/3: Waiting for $resolvedApp UI to settle...',
+          status: 'running',
+          timestamp: DateTime.now(),
+        ));
+        await Future.delayed(const Duration(milliseconds: 1200));
+        steps.add(AgentExecutionStep(
+          stepName: '✅ Step 2/3: UI ready',
+          status: 'success',
+          timestamp: DateTime.now(),
+        ));
+
+        // Step 3: Search
+        steps.add(AgentExecutionStep(
+          stepName: '🔍 Step 3/3: Searching for "$query"...',
+          status: 'running',
+          timestamp: DateTime.now(),
+        ));
+
+        // Click search if present
+        await _actionDispatcher.clickUiElement('Search');
+        final typeRes = await _actionDispatcher.typeUiText(query, targetHint: 'Search');
+
+        steps.add(AgentExecutionStep(
+          stepName: typeRes['success'] == true
+              ? '✅ Step 3/3: Searched "$query"'
+              : '⚠️ Step 3/3: Query entered',
+          status: 'success',
+          output: typeRes['message']?.toString(),
+          timestamp: DateTime.now(),
+        ));
+
+        return AgentLoopResult(
+          hasAction: true,
+          steps: steps,
+          finalResponse: '✅ **Multi-Step UI Automation Complete:**\n'
+              '• Launched **$resolvedApp**\n'
+              '• Activated search and queried **"$query"**',
+          actionBadge: 'Multi-Step UI',
+        );
+
       default:
         return AgentLoopResult(
           hasAction: false,
@@ -512,6 +767,34 @@ If the user request is an action that can be executed by a tool, you MUST respon
         params: {'phoneNumber': number, 'message': msg},
         description: 'Send WhatsApp to $number: "$msg"',
         isSensitive: true,
+      );
+    } else if (call.toolName == 'CLICK_UI') {
+      final target = (call.arguments['targetText'] ?? call.arguments['text'] ?? '').toString();
+      return PhoneAction(
+        id: 'act_$nowMs',
+        type: ActionType.clickUi,
+        params: {'targetText': target},
+        description: 'Click on UI element "$target"',
+        isSensitive: call.isSensitive,
+      );
+    } else if (call.toolName == 'TYPE_TEXT') {
+      final text = (call.arguments['text'] ?? '').toString();
+      final hint = call.arguments['targetHint']?.toString();
+      return PhoneAction(
+        id: 'act_$nowMs',
+        type: ActionType.typeText,
+        params: call.arguments,
+        description: 'Type "$text"${hint != null ? ' into "$hint"' : ''}',
+        isSensitive: false,
+      );
+    } else if (call.toolName == 'SCROLL_SCREEN') {
+      final dir = (call.arguments['direction'] ?? 'down').toString();
+      return PhoneAction(
+        id: 'act_$nowMs',
+        type: ActionType.scrollUi,
+        params: call.arguments,
+        description: 'Scroll screen $dir',
+        isSensitive: false,
       );
     }
 

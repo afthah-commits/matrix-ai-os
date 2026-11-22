@@ -541,7 +541,9 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
               Icon(
                 pending.action.type == ActionType.callContact
                     ? Icons.phone_forwarded
-                    : Icons.send,
+                    : pending.action.type == ActionType.clickUi
+                        ? Icons.touch_app
+                        : Icons.send,
                 color: amberAlert,
                 size: 16,
               ),
