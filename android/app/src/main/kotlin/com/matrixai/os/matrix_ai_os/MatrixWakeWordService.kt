@@ -297,7 +297,7 @@ class MatrixWakeWordService : Service() {
             vadRunning.set(true)
             consecutiveVoiceFrames = 0
 
-            Log.i(TAG, "VAD Energy Gate active (Listening silently, SpeechRecognizer is 100% OFF)")
+            Log.d(TAG, "VAD Energy Gate active (Listening silently, SpeechRecognizer is 100% OFF)")
 
             vadThread = Thread({
                 val buffer = ShortArray(BUFFER_SIZE_SHORTS)
@@ -324,8 +324,9 @@ class MatrixWakeWordService : Service() {
                             consecutiveVoiceFrames = 0
                         }
                     } else {
+                        // Microphone contention or read error (e.g. game audio / phone call)
                         try {
-                            Thread.sleep(40L)
+                            Thread.sleep(500L)
                         } catch (_: InterruptedException) {
                             break
                         }

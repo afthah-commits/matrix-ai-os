@@ -41,6 +41,13 @@ class LocalDatabaseService {
   final EncryptionKeyManager _keyManager;
   final CipherService _cipherService;
 
+  static Store? _globalStore;
+  static Box<MemoryNode>? _globalMemoryBox;
+  static Box<DailySummary>? _globalSummaryBox;
+  static Box<KnowledgeEdge>? _globalEdgeBox;
+  static String? _globalDbPath;
+  static bool _globalInitialized = false;
+
   Store? _store;
   Box<MemoryNode>? _memoryBox;
   Box<DailySummary>? _summaryBox;
@@ -77,6 +84,16 @@ class LocalDatabaseService {
   Future<void> initialize({String? customDirectoryPath}) async {
     if (_isInitialized) return;
 
+    if (_globalInitialized && _globalStore != null && !_globalStore!.isClosed()) {
+      _store = _globalStore;
+      _memoryBox = _globalMemoryBox;
+      _summaryBox = _globalSummaryBox;
+      _edgeBox = _globalEdgeBox;
+      _databaseDirectoryPath = _globalDbPath;
+      _isInitialized = true;
+      return;
+    }
+
     try {
       // 1. Retrieve or generate the master 256-bit encryption key
       final masterKey = await _keyManager.getOrCreateMasterKey();
@@ -95,12 +112,23 @@ class LocalDatabaseService {
         await dir.create(recursive: true);
       }
 
-      // 3. Initialize ObjectBox Store
-      _store = await openStore(directory: _databaseDirectoryPath);
+      // 3. Initialize ObjectBox Store (attaching if already open to prevent lock contention)
+      if (Store.isOpen(_databaseDirectoryPath!)) {
+        _store = Store.attach(getObjectBoxModel(), _databaseDirectoryPath!);
+      } else {
+        _store = await openStore(directory: _databaseDirectoryPath);
+      }
       _memoryBox = _store!.box<MemoryNode>();
       _summaryBox = _store!.box<DailySummary>();
       _edgeBox = _store!.box<KnowledgeEdge>();
       _isInitialized = true;
+
+      _globalStore = _store;
+      _globalMemoryBox = _memoryBox;
+      _globalSummaryBox = _summaryBox;
+      _globalEdgeBox = _edgeBox;
+      _globalDbPath = _databaseDirectoryPath;
+      _globalInitialized = true;
 
       debugPrint('[LocalDatabaseService] ObjectBox initialized at $_databaseDirectoryPath with AES-256-GCM encryption.');
     } catch (e, stack) {
@@ -348,6 +376,8 @@ class LocalDatabaseService {
     if (_store != null && !_store!.isClosed()) {
       _store!.close();
       _isInitialized = false;
+      _globalStore = null;
+      _globalInitialized = false;
       debugPrint('[LocalDatabaseService] Store closed.');
     }
   }

@@ -14,5 +14,8 @@ void main() {
     // Verify title and system constants
     expect(find.text(AppConstants.appName), findsOneWidget);
     expect(find.text('Privacy-First Local AI Core'), findsOneWidget);
+
+    // Allow any pending async timeouts to cleanly expire
+    await tester.pump(const Duration(seconds: 4));
   });
 }

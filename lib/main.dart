@@ -1,22 +1,81 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:matrix_ai_os/core/constants/app_constants.dart';
+import 'package:matrix_ai_os/core/database/local_database_service.dart';
+import 'package:matrix_ai_os/core/security/encryption_key_manager.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/screens/main_shell_screen.dart';
+import 'package:matrix_ai_os/features/assistant_ui/presentation/services/wake_word_bridge_service.dart';
 import 'package:matrix_ai_os/features/device_ingestion/background/background_sync_worker.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  WidgetsBinding.instance.ensureSemantics();
 
-  // Initialize periodic lightweight background sync (battery-not-low constraint)
-  await BackgroundSyncWorker.initialize();
-  await BackgroundSyncWorker.schedulePeriodicSync();
-
+  // Render the Flutter UI IMMEDIATELY (<500ms budget) so the app NEVER hangs on splash/loading
   runApp(
     const ProviderScope(
       child: MatrixAiOsApp(),
     ),
   );
+
+  // Non-blocking initialization of heavy services with timeouts inside try-catch
+  unawaited(_initializeCoreEngines());
+}
+
+Future<void> _initializeCoreEngines() async {
+  // 1. Initialize Keystore & ObjectBox NoSQL Storage with timeout
+  try {
+    final keyManager = EncryptionKeyManager();
+    await keyManager.getOrCreateMasterKey().timeout(
+      const Duration(milliseconds: 1500),
+      onTimeout: () {
+        debugPrint('[Startup] Keystore key resolution timed out.');
+        return Uint8List(32);
+      },
+    );
+
+    final dbService = LocalDatabaseService();
+    await dbService.initialize().timeout(
+      const Duration(milliseconds: 2500),
+      onTimeout: () {
+        debugPrint('[Startup] ObjectBox init timed out; continuing.');
+      },
+    );
+  } catch (e) {
+    debugPrint('[Startup] ObjectBox/Keystore startup error: $e');
+  }
+
+  // 2. Initialize Workmanager & Background Sync with timeout
+  try {
+    await BackgroundSyncWorker.initialize().timeout(
+      const Duration(milliseconds: 2000),
+      onTimeout: () {
+        debugPrint('[Startup] BackgroundSyncWorker init timed out.');
+      },
+    );
+    await BackgroundSyncWorker.schedulePeriodicSync().timeout(
+      const Duration(milliseconds: 1500),
+      onTimeout: () {
+        debugPrint('[Startup] BackgroundSyncWorker schedule timed out.');
+      },
+    );
+  } catch (e) {
+    debugPrint('[Startup] BackgroundSyncWorker startup error: $e');
+  }
+
+  // 3. Initialize Wake-Word Bridge / Native Service with timeout
+  try {
+    final wakeBridge = WakeWordBridgeService();
+    await wakeBridge.init().timeout(
+      const Duration(milliseconds: 1500),
+      onTimeout: () {
+        debugPrint('[Startup] WakeWordBridgeService init timed out.');
+      },
+    );
+  } catch (e) {
+    debugPrint('[Startup] WakeWordBridgeService startup error: $e');
+  }
 }
 
 class MatrixAiOsApp extends StatelessWidget {
