@@ -446,6 +446,29 @@ class ActionDispatcherService {
     }
   }
 
+  /// Launches native system file picker for user to select an image or PDF document.
+  Future<Map<String, dynamic>> pickDocumentOrImage() async {
+    try {
+      final res = await _channel.invokeMapMethod<String, dynamic>('pickDocumentOrImage');
+      return res ?? {'success': false, 'error': 'No response from native channel'};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Renders a PDF page to a temporary JPEG file for on-device OCR.
+  Future<Map<String, dynamic>> renderPdfPageForOcr(String contentUri, {int pageIndex = 0}) async {
+    try {
+      final res = await _channel.invokeMapMethod<String, dynamic>(
+        'renderPdfPageForOcr',
+        {'contentUri': contentUri, 'pageIndex': pageIndex},
+      );
+      return res ?? {'success': false, 'error': 'No response from native channel'};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   /// Opens a local image or PDF document URI directly in the phone's native viewer.
   Future<Map<String, dynamic>> openFileUri(String uri, {String? mimeType}) async {
     try {

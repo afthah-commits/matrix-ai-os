@@ -34,6 +34,7 @@ class ActionExecutorChannel(
 ) : MethodChannel.MethodCallHandler {
 
     private val channel = MethodChannel(messenger, CHANNEL_NAME)
+    var pickerLauncher: ((MethodChannel.Result) -> Unit)? = null
 
     init {
         channel.setMethodCallHandler(this)
@@ -167,6 +168,15 @@ class ActionExecutorChannel(
                     val mime = call.argument<String>("mimeType")
                     val openResult = openFileUri(uri, mime)
                     result.success(openResult)
+                }
+
+                "pickDocumentOrImage" -> {
+                    val launcher = pickerLauncher
+                    if (launcher != null) {
+                        launcher.invoke(result)
+                    } else {
+                        result.error("NO_PICKER", "Document picker launcher is not initialized in Activity", null)
+                    }
                 }
 
                 "checkAllFilesAccess" -> {

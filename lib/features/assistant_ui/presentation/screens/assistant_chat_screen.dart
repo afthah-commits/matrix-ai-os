@@ -10,6 +10,7 @@ import 'package:matrix_ai_os/features/assistant_ui/presentation/controllers/chat
 import 'package:matrix_ai_os/features/assistant_ui/presentation/screens/ai_settings_modal.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/services/voice_assistant_service.dart';
 import 'package:matrix_ai_os/features/ocr_vision/domain/services/deep_document_finder_service.dart';
+import 'package:matrix_ai_os/features/ocr_vision/presentation/screens/upload_document_modal.dart';
 
 /// Full-featured, privacy-first conversational Assistant Chat Screen
 /// with High-Contrast OLED Dark Layout, Voice UI (STT/TTS),
@@ -165,6 +166,12 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
           ],
         ),
         actions: [
+          // Manual Vault Document / ID Upload
+          IconButton(
+            tooltip: 'Upload Document / ID Card',
+            icon: const Icon(Icons.add_photo_alternate_outlined, color: neonCyan, size: 21),
+            onPressed: () => UploadDocumentModal.show(context),
+          ),
           // Voice Output Speaker Toggle
           IconButton(
             tooltip: voiceService.isTtsEnabled ? 'Mute AI Voice' : 'Enable AI Voice',
@@ -440,7 +447,27 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
               _buildBadge(Icons.hearing, 'Hey Matrix Wake-Word', const Color(0xFFF59E0B)),
             ],
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 20),
+
+          // Upload Document / ID Card Vault Button
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                backgroundColor: primaryEmerald.withValues(alpha: 0.1),
+                side: BorderSide(color: primaryEmerald.withValues(alpha: 0.5)),
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              icon: const Icon(Icons.upload_file_rounded, color: primaryEmerald, size: 20),
+              label: const Text(
+                'Upload Document / ID to Encrypted Vault',
+                style: TextStyle(color: primaryEmerald, fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              onPressed: () => UploadDocumentModal.show(context),
+            ),
+          ),
+          const SizedBox(height: 20),
 
           Align(
             alignment: Alignment.centerLeft,
