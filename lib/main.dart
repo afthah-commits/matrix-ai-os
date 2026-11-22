@@ -6,6 +6,7 @@ import 'package:matrix_ai_os/features/device_ingestion/background/background_syn
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  WidgetsBinding.instance.ensureSemantics();
 
   // Initialize periodic lightweight background sync (battery-not-low constraint)
   await BackgroundSyncWorker.initialize();

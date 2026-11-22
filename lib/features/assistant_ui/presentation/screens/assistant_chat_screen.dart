@@ -249,18 +249,22 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
           Expanded(
             child: chatState.messages.isEmpty
                 ? _buildEmptyStateHero()
-                : ListView.builder(
-                    controller: _scrollController,
-                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                    padding: const EdgeInsets.only(left: 14, right: 14, top: 12, bottom: 20),
-                    itemCount: chatState.messages.length + (chatState.isLoading ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      if (index == chatState.messages.length) {
-                        return _buildLoadingBubble();
-                      }
-                      final msg = chatState.messages[index];
-                      return _buildMessageBubble(msg);
-                    },
+                : SelectionArea(
+                    child: ListView.builder(
+                      key: const PageStorageKey('assistant_chat_list'),
+                      controller: _scrollController,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                      padding: const EdgeInsets.only(left: 14, right: 14, top: 12, bottom: 20),
+                      itemCount: chatState.messages.length + (chatState.isLoading ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (index == chatState.messages.length) {
+                          return _buildLoadingBubble();
+                        }
+                        final msg = chatState.messages[index];
+                        return _buildMessageBubble(msg);
+                      },
+                    ),
                   ),
           ),
 
@@ -545,7 +549,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              SelectableText(
+              Text(
                 msg.text,
                 style: const TextStyle(
                   fontSize: 15,
@@ -598,7 +602,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // HERO: AI Response text in bright 15sp high-contrast readable text
-            SelectableText(
+            Text(
               msg.text,
               style: const TextStyle(
                 fontSize: 15,

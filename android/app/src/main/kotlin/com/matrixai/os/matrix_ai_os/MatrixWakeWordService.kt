@@ -9,7 +9,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -28,26 +31,46 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.sqrt
 
 /**
- * Lightweight, silent, battery-aware foreground service that continuously listens
- * for "Hey Matrix" / "മാട്രിക്സ്" wake phrases using Android's native SpeechRecognizer.
+ * High-efficiency, zero-click native background wake-word service for Matrix AI OS.
  *
- * Mutes system/notification audio streams right before startListening to eliminate
- * any annoying system beeps during continuous background restarts.
+ * Architecture:
+ * 1. Zero-Click VAD Energy Gate:
+ *    - In silent room / background: Uses lightweight AudioRecord (16kHz mono PCM, tiny 2KB buffer).
+ *    - SpeechRecognizer is 100% OFF during silence.
+ *    - Absolutely ZERO audio focus requests, zero repeated click-click sounds, and near-zero battery drain.
  *
- * When triggered, launches a sleek Siri-style floating pop-up overlay (MatrixOverlayService)
- * over the current screen without redirecting away from the active app.
+ * 2. On-Demand Single-Pass SpeechRecognizer:
+ *    - Only when RMS voice energy exceeds threshold (human voice detected), AudioRecord pauses,
+ *      and a single 3-second SpeechRecognizer pass evaluates "Hey Matrix" / "മാട്രിക്സ്".
+ *    - Once evaluated (success, timeout, or no match), SpeechRecognizer immediately stops
+ *      and the service seamlessly returns to silent AudioRecord VAD monitoring.
+ *
+ * 3. Siri-Style Floating Pop-Up:
+ *    - On wake-word match, launches MatrixOverlayService floating pop-up without switching apps.
  */
 class MatrixWakeWordService : Service() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var speechRecognizer: SpeechRecognizer? = null
-    private var backoffDelayMs: Long = BASE_DELAY_MS
-    private var lastTriggerTimestamp: Long = 0L
-
     private var audioManager: AudioManager? = null
     private var isMutedForRecognition: Boolean = false
+    private var lastTriggerTimestamp: Long = 0L
+
+    // VAD AudioRecord Energy Gate State
+    private var audioRecord: AudioRecord? = null
+    private var vadThread: Thread? = null
+    private val vadRunning = AtomicBoolean(false)
+    private val isRecognizing = AtomicBoolean(false)
+    private var consecutiveVoiceFrames: Int = 0
+
+    private val recognitionTimeoutRunnable = Runnable {
+        Log.d(TAG, "Speech recognition pass reached timeout (3.5s). Returning to silent VAD.")
+        finishSpeechRecognitionPass()
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -57,8 +80,8 @@ class MatrixWakeWordService : Service() {
         startForegroundWithMicrophone()
         isRunning = true
         isPaused = false
-        Log.i(TAG, "MatrixWakeWordService started (Silent Background Mode)")
-        mainHandler.post { initAndStartListening() }
+        Log.i(TAG, "MatrixWakeWordService started (Zero-Click VAD Energy Gate Mode)")
+        mainHandler.post { initServiceEngines() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -81,8 +104,8 @@ class MatrixWakeWordService : Service() {
                 intent?.getStringExtra(EXTRA_LANGUAGE)?.let {
                     currentLanguage = it
                 }
-                if (!isPaused && isRunning) {
-                    mainHandler.post { safeStartListening() }
+                if (!isPaused && isRunning && !isRecognizing.get() && !vadRunning.get()) {
+                    mainHandler.post { startVadEnergyGate() }
                 }
             }
         }
@@ -95,9 +118,10 @@ class MatrixWakeWordService : Service() {
         isRunning = false
         isPaused = false
         serviceInstance = null
-        restoreAudioStreams()
         mainHandler.removeCallbacksAndMessages(null)
+        stopVadEnergyGate()
         destroySpeechRecognizer()
+        restoreAudioStreams()
         Log.i(TAG, "MatrixWakeWordService destroyed")
         super.onDestroy()
     }
@@ -148,7 +172,7 @@ class MatrixWakeWordService : Service() {
         }
     }
 
-    private fun initAndStartListening() {
+    private fun initServiceEngines() {
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -164,31 +188,37 @@ class MatrixWakeWordService : Service() {
         }
 
         initSpeechRecognizer()
-        safeStartListening()
+        startVadEnergyGate()
     }
 
+    /**
+     * Initializes the SpeechRecognizer instance for single-pass recognition.
+     */
     private fun initSpeechRecognizer() {
         destroySpeechRecognizer()
         try {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
                 setRecognitionListener(object : RecognitionListener {
                     override fun onReadyForSpeech(params: Bundle?) {
-                        // Unmute audio streams 100ms after recognition starts so no initial beep is heard
                         mainHandler.postDelayed({ restoreAudioStreams() }, 100L)
                     }
-                    override fun onBeginningOfSpeech() {}
+
+                    override fun onBeginningOfSpeech() {
+                        Log.d(TAG, "SpeechRecognizer: Beginning of human speech detected")
+                    }
+
                     override fun onRmsChanged(rmsdB: Float) {}
                     override fun onBufferReceived(buffer: ByteArray?) {}
                     override fun onEndOfSpeech() {}
 
                     override fun onError(error: Int) {
-                        restoreAudioStreams()
-                        handleSpeechError(error)
+                        Log.d(TAG, "SpeechRecognizer single pass ended (code: $error). Returning to silent VAD.")
+                        finishSpeechRecognitionPass()
                     }
 
                     override fun onResults(results: Bundle?) {
-                        restoreAudioStreams()
                         handleSpeechResults(results)
+                        finishSpeechRecognitionPass()
                     }
 
                     override fun onPartialResults(partialResults: Bundle?) {
@@ -201,73 +231,163 @@ class MatrixWakeWordService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to instantiate SpeechRecognizer: ${e.message}")
             restoreAudioStreams()
-            scheduleRestart(MAX_BACKOFF_MS)
+            isRecognizing.set(false)
+            mainHandler.postDelayed({ startVadEnergyGate() }, 2000L)
         }
     }
 
     /**
-     * Mutes notification, system, and music streams temporarily to suppress Android's
-     * native SpeechRecognizer start/restart beep tones.
+     * Starts the lightweight AudioRecord Voice Activity Detection (VAD) energy gate.
+     * SpeechRecognizer stays completely OFF while this gate runs.
      */
-    private fun muteAudioStreams() {
+    private fun startVadEnergyGate() {
+        if (!isRunning || isPaused || isRecognizing.get()) return
+
+        stopVadEnergyGate()
+
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.e(TAG, "RECORD_AUDIO permission revoked; stopping service")
+            stopSelf()
+            return
+        }
+
         try {
-            audioManager?.let { am ->
-                if (!isMutedForRecognition) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        try {
-                            am.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0)
-                            am.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_MUTE, 0)
-                            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
-                        } catch (_: SecurityException) {}
+            val minBuf = AudioRecord.getMinBufferSize(
+                SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+            val bufSize = minBuf.coerceAtLeast(BUFFER_SIZE_SHORTS * 2)
+
+            var record: AudioRecord? = null
+            try {
+                record = AudioRecord(
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    SAMPLE_RATE,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    bufSize
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "AudioSource.VOICE_RECOGNITION unavailable: ${e.message}")
+            }
+
+            if (record == null || record.state != AudioRecord.STATE_INITIALIZED) {
+                record?.release()
+                record = AudioRecord(
+                    MediaRecorder.AudioSource.MIC,
+                    SAMPLE_RATE,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    bufSize
+                )
+            }
+
+            if (record.state != AudioRecord.STATE_INITIALIZED) {
+                Log.e(TAG, "AudioRecord state not initialized")
+                record.release()
+                mainHandler.postDelayed({ startVadEnergyGate() }, 2000L)
+                return
+            }
+
+            audioRecord = record
+            record.startRecording()
+            vadRunning.set(true)
+            consecutiveVoiceFrames = 0
+
+            Log.i(TAG, "VAD Energy Gate active (Listening silently, SpeechRecognizer is 100% OFF)")
+
+            vadThread = Thread({
+                val buffer = ShortArray(BUFFER_SIZE_SHORTS)
+                while (vadRunning.get() && isRunning && !isPaused) {
+                    val rec = audioRecord ?: break
+                    val read = rec.read(buffer, 0, buffer.size)
+                    if (read > 0) {
+                        var sumSq = 0.0
+                        for (i in 0 until read) {
+                            val sample = buffer[i].toDouble()
+                            sumSq += sample * sample
+                        }
+                        val rms = sqrt(sumSq / read)
+
+                        if (rms >= VAD_RMS_THRESHOLD) {
+                            consecutiveVoiceFrames++
+                            if (consecutiveVoiceFrames >= VAD_CONSECUTIVE_FRAMES) {
+                                consecutiveVoiceFrames = 0
+                                Log.i(TAG, "Voice energy detected (RMS: ${rms.toInt()} >= $VAD_RMS_THRESHOLD). Activating single SpeechRecognizer pass!")
+                                mainHandler.post { triggerSpeechRecognitionPass() }
+                                break
+                            }
+                        } else {
+                            consecutiveVoiceFrames = 0
+                        }
                     } else {
-                        @Suppress("DEPRECATION")
-                        am.setStreamMute(AudioManager.STREAM_SYSTEM, true)
-                        @Suppress("DEPRECATION")
-                        am.setStreamMute(AudioManager.STREAM_NOTIFICATION, true)
-                        @Suppress("DEPRECATION")
-                        am.setStreamMute(AudioManager.STREAM_MUSIC, true)
+                        try {
+                            Thread.sleep(40L)
+                        } catch (_: InterruptedException) {
+                            break
+                        }
                     }
-                    isMutedForRecognition = true
                 }
+            }, "Matrix-VAD-Thread").apply {
+                priority = Thread.NORM_PRIORITY
+                start()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "muteAudioStreams error: ${e.message}")
+            Log.e(TAG, "startVadEnergyGate error: ${e.message}")
+            mainHandler.postDelayed({ startVadEnergyGate() }, 2000L)
         }
     }
 
     /**
-     * Restores audio streams to unmuted state.
+     * Stops the AudioRecord VAD gate and releases the hardware microphone.
      */
-    private fun restoreAudioStreams() {
+    private fun stopVadEnergyGate() {
+        vadRunning.set(false)
         try {
-            audioManager?.let { am ->
-                if (isMutedForRecognition) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        try {
-                            am.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0)
-                            am.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_UNMUTE, 0)
-                            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
-                        } catch (_: SecurityException) {}
-                    } else {
-                        @Suppress("DEPRECATION")
-                        am.setStreamMute(AudioManager.STREAM_SYSTEM, false)
-                        @Suppress("DEPRECATION")
-                        am.setStreamMute(AudioManager.STREAM_NOTIFICATION, false)
-                        @Suppress("DEPRECATION")
-                        am.setStreamMute(AudioManager.STREAM_MUSIC, false)
-                    }
-                    isMutedForRecognition = false
+            vadThread?.interrupt()
+            vadThread = null
+        } catch (_: Exception) {}
+
+        try {
+            audioRecord?.let {
+                if (it.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                    it.stop()
                 }
+                it.release()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "restoreAudioStreams error: ${e.message}")
+            Log.w(TAG, "stopVadEnergyGate error: ${e.message}")
+        } finally {
+            audioRecord = null
         }
+    }
+
+    /**
+     * Activated strictly when Voice Activity Detection detects human speech energy.
+     */
+    private fun triggerSpeechRecognitionPass() {
+        if (!isRunning || isPaused || isRecognizing.get()) return
+
+        stopVadEnergyGate()
+        isRecognizing.set(true)
+
+        // Safety watchdog: Return to silent VAD if SpeechRecognizer hangs or times out
+        mainHandler.removeCallbacks(recognitionTimeoutRunnable)
+        mainHandler.postDelayed(recognitionTimeoutRunnable, 3500L)
+
+        safeStartListening()
     }
 
     private fun safeStartListening() {
-        if (!isRunning || isPaused) return
+        if (!isRunning || isPaused) {
+            isRecognizing.set(false)
+            return
+        }
+
         try {
-            // Silence beep sounds before SpeechRecognizer kicks in
             muteAudioStreams()
 
             val localeTag = if (currentLanguage == "ml") "ml-IN" else Locale.getDefault().toLanguageTag()
@@ -285,8 +405,29 @@ class MatrixWakeWordService : Service() {
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
             Log.w(TAG, "safeStartListening failed: ${e.message}")
-            restoreAudioStreams()
-            scheduleRestart(2000L)
+            finishSpeechRecognitionPass()
+        }
+    }
+
+    /**
+     * Finishes the single recognition pass and safely returns to silent AudioRecord VAD monitoring.
+     */
+    private fun finishSpeechRecognitionPass() {
+        mainHandler.removeCallbacks(recognitionTimeoutRunnable)
+        restoreAudioStreams()
+
+        try {
+            speechRecognizer?.stopListening()
+            speechRecognizer?.cancel()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error stopping recognizer: ${e.message}")
+        }
+
+        isRecognizing.set(false)
+
+        if (isRunning && !isPaused) {
+            // Re-activate silent VAD gate after 150ms settling cooldown
+            mainHandler.postDelayed({ startVadEnergyGate() }, 150L)
         }
     }
 
@@ -305,49 +446,13 @@ class MatrixWakeWordService : Service() {
 
     private fun handleSpeechResults(bundle: Bundle?) {
         val matches = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-        var detected = false
         if (!matches.isNullOrEmpty()) {
             for (text in matches) {
                 val (found, remainder) = evaluateWakePhrase(text)
                 if (found) {
-                    detected = true
                     onWakeWordDetected(remainder)
-                    break
+                    return
                 }
-            }
-        }
-
-        if (!detected && isRunning && !isPaused) {
-            backoffDelayMs = BASE_DELAY_MS
-            scheduleRestart(BASE_DELAY_MS)
-        }
-    }
-
-    private fun handleSpeechError(error: Int) {
-        if (!isRunning || isPaused) return
-        when (error) {
-            SpeechRecognizer.ERROR_NO_MATCH,
-            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                backoffDelayMs = BASE_DELAY_MS
-                scheduleRestart(BASE_DELAY_MS)
-            }
-            SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
-            SpeechRecognizer.ERROR_AUDIO,
-            SpeechRecognizer.ERROR_SERVER,
-            SpeechRecognizer.ERROR_NETWORK,
-            SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
-            SpeechRecognizer.ERROR_CLIENT -> {
-                val delay = backoffDelayMs
-                backoffDelayMs = (backoffDelayMs * 2).coerceAtMost(MAX_BACKOFF_MS)
-                Log.w(TAG, "SpeechRecognizer error ($error), backing off ${delay}ms")
-                scheduleRestart(delay)
-            }
-            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
-                Log.e(TAG, "Permissions revoked. Stopping service.")
-                stopSelf()
-            }
-            else -> {
-                scheduleRestart(1200L)
             }
         }
     }
@@ -363,15 +468,14 @@ class MatrixWakeWordService : Service() {
         // Yield microphone to the foreground voice session
         pauseListening()
 
-        // Haptic pulse
+        // Haptic feedback pulse
         triggerVibration()
 
-        // Wake screen if sleeping
+        // Wake screen display if phone is sleeping
         wakeScreenDisplay()
 
-        // Check if Overlay permission (SYSTEM_ALERT_WINDOW) is granted
+        // Launch Siri-style floating pop-up overlay if permission granted
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
-            // Launch Siri-style floating pop-up overlay over current screen!
             val overlayIntent = Intent(this, MatrixOverlayService::class.java).apply {
                 putExtra(EXTRA_INITIAL_QUERY, query)
                 putExtra(EXTRA_TRIGGER_TYPE, "wake_word")
@@ -443,35 +547,24 @@ class MatrixWakeWordService : Service() {
         }
     }
 
-    private fun scheduleRestart(delayMs: Long) {
-        if (!isRunning || isPaused) return
-        mainHandler.removeCallbacks(restartRunnable)
-        mainHandler.postDelayed(restartRunnable, delayMs)
-    }
-
-    private val restartRunnable = Runnable {
-        if (isRunning && !isPaused) {
-            safeStartListening()
-        }
-    }
-
     fun pauseListening() {
         isPaused = true
+        mainHandler.removeCallbacks(recognitionTimeoutRunnable)
+        stopVadEnergyGate()
         restoreAudioStreams()
-        mainHandler.removeCallbacks(restartRunnable)
         try {
             speechRecognizer?.stopListening()
             speechRecognizer?.cancel()
         } catch (e: Exception) {
             Log.w(TAG, "Error pausing recognizer: ${e.message}")
         }
+        isRecognizing.set(false)
     }
 
     fun resumeListening() {
         if (!isRunning) return
         isPaused = false
-        backoffDelayMs = BASE_DELAY_MS
-        scheduleRestart(BASE_DELAY_MS)
+        mainHandler.post { startVadEnergyGate() }
     }
 
     private fun destroySpeechRecognizer() {
@@ -485,8 +578,67 @@ class MatrixWakeWordService : Service() {
         }
     }
 
+    /**
+     * Mutes notification, system, and music streams temporarily to suppress Android's
+     * native SpeechRecognizer start/restart beep tones.
+     */
+    private fun muteAudioStreams() {
+        try {
+            audioManager?.let { am ->
+                if (!isMutedForRecognition) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        try {
+                            am.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0)
+                            am.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_MUTE, 0)
+                            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
+                        } catch (_: SecurityException) {}
+                    } else {
+                        @Suppress("DEPRECATION")
+                        am.setStreamMute(AudioManager.STREAM_SYSTEM, true)
+                        @Suppress("DEPRECATION")
+                        am.setStreamMute(AudioManager.STREAM_NOTIFICATION, true)
+                        @Suppress("DEPRECATION")
+                        am.setStreamMute(AudioManager.STREAM_MUSIC, true)
+                    }
+                    isMutedForRecognition = true
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "muteAudioStreams error: ${e.message}")
+        }
+    }
+
+    /**
+     * Restores audio streams to unmuted state.
+     */
+    private fun restoreAudioStreams() {
+        try {
+            audioManager?.let { am ->
+                if (isMutedForRecognition) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        try {
+                            am.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0)
+                            am.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_UNMUTE, 0)
+                            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
+                        } catch (_: SecurityException) {}
+                    } else {
+                        @Suppress("DEPRECATION")
+                        am.setStreamMute(AudioManager.STREAM_SYSTEM, false)
+                        @Suppress("DEPRECATION")
+                        am.setStreamMute(AudioManager.STREAM_NOTIFICATION, false)
+                        @Suppress("DEPRECATION")
+                        am.setStreamMute(AudioManager.STREAM_MUSIC, false)
+                    }
+                    isMutedForRecognition = false
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "restoreAudioStreams error: ${e.message}")
+        }
+    }
+
     companion object {
-        private const val TAG = "MatrixWakeWordService"
+        private const val TAG = "MatrixWakeWord"
         const val CHANNEL_ID = "matrix_wake_word_channel"
         const val NOTIFICATION_ID = 2001
         const val EXTRA_WAKE_WORD_TRIGGERED = "EXTRA_WAKE_WORD_TRIGGERED"
@@ -499,8 +651,11 @@ class MatrixWakeWordService : Service() {
         const val ACTION_RESUME = "com.matrixai.os.action.RESUME_WAKE_WORD"
         const val ACTION_WAKE_WORD_TRIGGERED = "com.matrixai.os.action.WAKE_WORD_TRIGGERED"
 
-        private const val BASE_DELAY_MS = 800L
-        private const val MAX_BACKOFF_MS = 6000L
+        // VAD Tuning Parameters
+        private const val SAMPLE_RATE = 16000
+        private const val BUFFER_SIZE_SHORTS = 1024 // 2048 bytes (64ms)
+        private const val VAD_RMS_THRESHOLD = 950.0 // RMS voice energy threshold
+        private const val VAD_CONSECUTIVE_FRAMES = 2 // ~128ms of speech energy to trigger recognizer
         private const val COOLDOWN_MS = 3000L
 
         @Volatile

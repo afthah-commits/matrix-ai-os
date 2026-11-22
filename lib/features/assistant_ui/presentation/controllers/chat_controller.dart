@@ -380,10 +380,10 @@ class ChatController extends StateNotifier<ChatState> {
 /// Provider for the ChatController.
 final chatControllerProvider =
     StateNotifierProvider<ChatController, ChatState>((ref) {
-  final orchestrator = ref.watch(hybridRagOrchestratorProvider);
-  final byokManager = ref.watch(byokKeyManagerProvider);
-  final actionDispatcher = ref.watch(actionDispatcherServiceProvider);
-  final voiceService = ref.watch(voiceAssistantServiceProvider);
+  final orchestrator = ref.read(hybridRagOrchestratorProvider);
+  final byokManager = ref.read(byokKeyManagerProvider);
+  final actionDispatcher = ref.read(actionDispatcherServiceProvider);
+  final voiceService = ref.read(voiceAssistantServiceProvider);
   return ChatController(
     orchestrator: orchestrator,
     byokManager: byokManager,
