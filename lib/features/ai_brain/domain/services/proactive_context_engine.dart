@@ -53,6 +53,9 @@ class ProactiveContextEngine {
     DateTime? referenceDate,
   }) async {
     final insights = <ProactiveInsight>[];
+    if (!_dbService.isInitialized) {
+      return insights;
+    }
     final now = referenceDate ?? DateTime.now();
 
     try {

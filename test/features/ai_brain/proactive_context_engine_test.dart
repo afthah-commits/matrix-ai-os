@@ -15,6 +15,9 @@ class FakeLocalDatabaseServiceForProactive extends LocalDatabaseService {
   });
 
   @override
+  bool get isInitialized => true;
+
+  @override
   List<DailySummary> getAllDailySummaries() => fakeSummaries;
 
   @override

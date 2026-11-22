@@ -130,17 +130,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
           ),
         ],
       ),
-      body: state.isLoading && !state.isInitialized
-          ? const Center(
-              child: CircularProgressIndicator(color: primaryEmerald),
-            )
-          : RefreshIndicator(
-              color: primaryEmerald,
-              onRefresh: () async {
-                await controller.refreshMetrics();
-                await permController.checkPermissions();
-              },
-              child: SingleChildScrollView(
+      body: RefreshIndicator(
+        color: primaryEmerald,
+        onRefresh: () async {
+          await controller.refreshMetrics();
+          await permController.checkPermissions();
+        },
+        child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16.0),
                 child: Column(

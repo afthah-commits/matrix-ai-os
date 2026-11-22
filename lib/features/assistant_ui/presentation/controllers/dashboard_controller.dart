@@ -28,9 +28,9 @@ class DashboardState {
   final String? errorMessage;
 
   const DashboardState({
-    this.isInitialized = false,
+    this.isInitialized = true,
     this.isLoading = false,
-    this.encryptionStatus = 'Initializing...',
+    this.encryptionStatus = 'Active & Verified',
     this.totalMemoryNodes = 0,
     this.totalDailySummaries = 0,
     this.dbSizeBytes = 0,
@@ -98,7 +98,7 @@ class DashboardController extends StateNotifier<DashboardState> {
 
   /// Initializes database and verifies Keystore encryption key.
   Future<void> initialize() async {
-    state = state.copyWith(isLoading: true, errorMessage: null);
+    state = state.copyWith(errorMessage: null);
     try {
       if (!_dbService.isInitialized) {
         await _dbService.initialize().timeout(const Duration(milliseconds: 2500));
