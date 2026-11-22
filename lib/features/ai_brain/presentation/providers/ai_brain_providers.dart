@@ -1,11 +1,16 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:matrix_ai_os/core/database/database_providers.dart';
 import 'package:matrix_ai_os/features/ai_brain/data/tools/live_web_search_tool.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/mcp/mcp_plugin_registry.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/mcp/plugins/device_battery_storage_plugin.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/mcp/plugins/personal_digest_plugin.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/mcp/plugins/quick_math_currency_plugin.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/action_dispatcher_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/byok_key_manager.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/hybrid_rag_orchestrator.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/intent_router_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/knowledge_graph_service.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/services/offline_slm_manager.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/pii_masking_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/proactive_context_engine.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/services/voice_assistant_service.dart';
@@ -64,7 +69,25 @@ final voiceAssistantServiceProvider = ChangeNotifierProvider<VoiceAssistantServi
   return VoiceAssistantService();
 });
 
-/// Provider for the Hybrid RAG Orchestrator.
+/// ChangeNotifierProvider for on-demand downloadable edge SLMs.
+final offlineSlmManagerProvider = ChangeNotifierProvider<OfflineSlmManager>((ref) {
+  return OfflineSlmManager();
+});
+
+/// ChangeNotifierProvider for Model Context Protocol (MCP) tool registry.
+final mcpPluginRegistryProvider = ChangeNotifierProvider<McpPluginRegistry>((ref) {
+  final dbService = ref.watch(localDatabaseServiceProvider);
+  final registry = McpPluginRegistry(
+    initialPlugins: [
+      DeviceBatteryStoragePlugin(dbService: dbService),
+      QuickMathCurrencyPlugin(),
+      PersonalDigestPlugin(dbService: dbService),
+    ],
+  );
+  return registry;
+});
+
+/// Provider for the Hybrid RAG Orchestrator with SLM & MCP integration.
 final hybridRagOrchestratorProvider = Provider<HybridRagOrchestrator>((ref) {
   return HybridRagOrchestrator(
     knowledgeGraphService: ref.watch(knowledgeGraphServiceProvider),
@@ -72,5 +95,7 @@ final hybridRagOrchestratorProvider = Provider<HybridRagOrchestrator>((ref) {
     webSearchTool: ref.watch(liveWebSearchToolProvider),
     intentRouter: ref.watch(intentRouterServiceProvider),
     byokManager: ref.watch(byokKeyManagerProvider),
+    mcpRegistry: ref.watch(mcpPluginRegistryProvider),
+    slmManager: ref.watch(offlineSlmManagerProvider),
   );
 });

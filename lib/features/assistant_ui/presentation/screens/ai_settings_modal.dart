@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/byok_key_manager.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/services/offline_slm_manager.dart';
 import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/controllers/chat_controller.dart';
 
 /// Modal bottom sheet allowing users to securely configure BYOK API keys,
-/// select providers, or enforce 100% Air-Gapped offline mode.
+/// manage optional on-demand offline SLM models, and toggle MCP plugins.
 class AiSettingsModal extends ConsumerStatefulWidget {
   const AiSettingsModal({super.key});
 
@@ -119,11 +120,18 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
   Widget build(BuildContext context) {
     const primaryEmerald = Color(0xFF10B981);
     const neonCyan = Color(0xFF06B6D4);
+    const accentViolet = Color(0xFF8B5CF6);
     const surfaceCard = Color(0xFF111827);
     const bgContainer = Color(0xFF0F172A);
     const borderColor = Color(0xFF1F2937);
 
+    final slmManager = ref.watch(offlineSlmManagerProvider);
+    final mcpRegistry = ref.watch(mcpPluginRegistryProvider);
+
     return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.9,
+      ),
       padding: EdgeInsets.only(
         top: 20,
         left: 20,
@@ -182,7 +190,7 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'AI Brain & BYOK Settings',
+                            'AI Brain, SLM & MCP Settings',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -190,7 +198,7 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
                             ),
                           ),
                           Text(
-                            '100% Free • Zero Cloud Lock-in • Keystore Encrypted',
+                            '100% Free • Zero Cloud Lock-in • Edge Models',
                             style: TextStyle(
                               fontSize: 11,
                               color: Colors.white60,
@@ -202,16 +210,14 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Air-Gapped Offline Mode Card
+                  // 1. Air-Gapped Offline Mode Card
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: surfaceCard,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: _isOfflineOnly
-                            ? primaryEmerald
-                            : borderColor,
+                        color: _isOfflineOnly ? primaryEmerald : borderColor,
                         width: _isOfflineOnly ? 1.5 : 1.0,
                       ),
                     ),
@@ -237,7 +243,7 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
                               ),
                               SizedBox(height: 2),
                               Text(
-                                'Blocks all network calls. Runs strictly on-device using local encrypted memory.',
+                                'Blocks all network calls. Runs on-device via local encrypted memory & edge SLMs.',
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: Colors.white60,
@@ -259,12 +265,220 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 20),
+
+                  // 2. Active MCP Plugins Section
+                  Row(
+                    children: const [
+                      Icon(Icons.extension_outlined, color: primaryEmerald, size: 16),
+                      SizedBox(width: 6),
+                      Text(
+                        'ACTIVE MCP PLUGINS (EXTENSIONS)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.8,
+                          color: primaryEmerald,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: surfaceCard,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: borderColor),
+                    ),
+                    child: Column(
+                      children: mcpRegistry.getAllPlugins().map((plugin) {
+                        final isEnabled = mcpRegistry.isPluginEnabled(plugin.id);
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      plugin.name,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    Text(
+                                      plugin.description,
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.white60,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Switch(
+                                value: isEnabled,
+                                activeThumbColor: primaryEmerald,
+                                activeTrackColor: primaryEmerald.withValues(alpha: 0.3),
+                                onChanged: (val) {
+                                  mcpRegistry.setPluginEnabled(plugin.id, val);
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // 3. Offline Edge SLMs (Optional On-Demand)
+                  Row(
+                    children: const [
+                      Icon(Icons.memory_outlined, color: accentViolet, size: 16),
+                      SizedBox(width: 6),
+                      Text(
+                        'OFFLINE EDGE SLM MODELS (OPTIONAL)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.8,
+                          color: accentViolet,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Zero weights bundled in APK (<30MB target). Download on-demand for offline neural reasoning.',
+                    style: TextStyle(fontSize: 11, color: Colors.white60),
+                  ),
+                  const SizedBox(height: 8),
+
+                  ...OfflineSlmManager.catalog.map((model) {
+                    final state = slmManager.getModelState(model.id);
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: surfaceCard,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: borderColor),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                model.name,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: accentViolet.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  model.sizeFormatted,
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: accentViolet,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            model.description,
+                            style: const TextStyle(fontSize: 10, color: Colors.white60),
+                          ),
+                          const SizedBox(height: 8),
+
+                          if (state.status == SlmStatus.downloaded)
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Row(
+                                  children: [
+                                    Icon(Icons.check_circle, color: primaryEmerald, size: 14),
+                                    SizedBox(width: 4),
+                                    Text('Installed & Ready', style: TextStyle(fontSize: 11, color: primaryEmerald)),
+                                  ],
+                                ),
+                                TextButton.icon(
+                                  icon: const Icon(Icons.delete_outline, size: 14, color: Colors.redAccent),
+                                  label: const Text('Free Space', style: TextStyle(fontSize: 11, color: Colors.redAccent)),
+                                  onPressed: () async {
+                                    await slmManager.deleteModel(model.id);
+                                  },
+                                ),
+                              ],
+                            )
+                          else if (state.status == SlmStatus.downloading)
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                LinearProgressIndicator(
+                                  value: state.progress,
+                                  color: accentViolet,
+                                  backgroundColor: Colors.white10,
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'Downloading ${(state.progress * 100).toInt()}%',
+                                      style: const TextStyle(fontSize: 10, color: Colors.white60),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => slmManager.cancelDownload(model.id),
+                                      child: const Text('Cancel', style: TextStyle(fontSize: 10, color: Colors.redAccent)),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            )
+                          else
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.download_rounded, size: 14, color: accentViolet),
+                                label: const Text('Download Model', style: TextStyle(fontSize: 11, color: accentViolet)),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: accentViolet),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                ),
+                                onPressed: () {
+                                  slmManager.downloadModel(model);
+                                },
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  }),
+
+                  const SizedBox(height: 16),
 
                   if (!_isOfflineOnly) ...[
                     // Provider Selector
                     const Text(
-                      'ACTIVE AI PROVIDER',
+                      'ACTIVE CLOUD AI PROVIDER',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
@@ -339,19 +553,9 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
                             borderRadius: BorderRadius.circular(10),
                             borderSide: const BorderSide(color: borderColor),
                           ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(color: borderColor),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(color: primaryEmerald),
-                          ),
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _obscureGeminiKey
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
+                              _obscureGeminiKey ? Icons.visibility_off : Icons.visibility,
                               size: 18,
                               color: Colors.white54,
                             ),
@@ -393,9 +597,7 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
                           ),
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _obscureOpenAiKey
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
+                              _obscureOpenAiKey ? Icons.visibility_off : Icons.visibility,
                               size: 18,
                               color: Colors.white54,
                             ),

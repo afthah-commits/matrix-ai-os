@@ -21,6 +21,9 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
 
   static const _quickPrompts = [
     'How much did I spend this week?',
+    'Convert 100 USD to INR',
+    'Device storage status',
+    'Generate daily digest',
     'Who called me recently?',
     'What is my passport number?',
     'Read my screen',
@@ -453,6 +456,12 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                       Icons.language,
                       '${msg.webResultsUsed} Web Results',
                       const Color(0xFF38BDF8),
+                    ),
+                  if (msg.mcpBadge != null)
+                    _buildBadge(
+                      Icons.extension_outlined,
+                      'MCP: ${msg.mcpBadge!}',
+                      const Color(0xFF10B981),
                     ),
                   if (msg.isOfflineEngine)
                     _buildBadge(

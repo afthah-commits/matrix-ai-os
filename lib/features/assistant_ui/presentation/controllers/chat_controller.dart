@@ -22,6 +22,7 @@ class ChatMessage {
   final String? providerUsed;
   final PendingActionConfirmation? pendingAction;
   final ActionResult? actionResult;
+  final String? mcpBadge;
 
   const ChatMessage({
     required this.id,
@@ -36,6 +37,7 @@ class ChatMessage {
     this.providerUsed,
     this.pendingAction,
     this.actionResult,
+    this.mcpBadge,
   });
 
   bool get hasBadges =>
@@ -45,7 +47,8 @@ class ChatMessage {
           webResultsUsed > 0 ||
           isOfflineEngine ||
           intent != null ||
-          actionResult != null);
+          actionResult != null ||
+          mcpBadge != null);
 }
 
 /// State for the Assistant Chat session.
@@ -228,6 +231,7 @@ class ChatController extends StateNotifier<ChatState> {
         intent: response.intent,
         isOfflineEngine: response.isOfflineEngine,
         providerUsed: response.providerUsed,
+        mcpBadge: response.mcpBadge,
       );
 
       state = state.copyWith(
