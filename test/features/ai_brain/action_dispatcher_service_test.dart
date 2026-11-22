@@ -77,6 +77,10 @@ void main() {
               'success': true,
               'message': 'Opened file',
             };
+          case 'checkAllFilesAccess':
+            return true;
+          case 'requestAllFilesAccess':
+            return true;
           default:
             return null;
         }
@@ -286,6 +290,15 @@ void main() {
       final isEnabled = await dispatcher.checkAccessibilityEnabled();
       expect(isEnabled, isTrue);
       expect(methodCalls.any((c) => c.method == 'checkAccessibilityEnabled'), isTrue);
+    });
+
+    test('Checks all files access status and opens settings', () async {
+      final isGranted = await dispatcher.checkAllFilesAccess();
+      expect(isGranted, isTrue);
+      expect(methodCalls.any((c) => c.method == 'checkAllFilesAccess'), isTrue);
+
+      await dispatcher.openAllFilesSettings();
+      expect(methodCalls.any((c) => c.method == 'requestAllFilesAccess'), isTrue);
     });
   });
 }

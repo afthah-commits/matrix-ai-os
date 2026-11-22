@@ -262,6 +262,22 @@ void main() {
       expect(passport, isNotNull);
       expect(passport!.toolName, equals('SEARCH_FILES_AND_OCR'));
 
+      final showPassport = agentService.parseToolCall('show passport');
+      expect(showPassport, isNotNull);
+      expect(showPassport!.toolName, equals('SEARCH_FILES_AND_OCR'));
+
+      final password = agentService.parseToolCall('find my password');
+      expect(password, isNotNull);
+      expect(password!.toolName, equals('SEARCH_FILES_AND_OCR'));
+
+      final myDocs = agentService.parseToolCall('my documents');
+      expect(myDocs, isNotNull);
+      expect(myDocs!.toolName, equals('SEARCH_FILES_AND_OCR'));
+
+      final myFiles = agentService.parseToolCall('my files');
+      expect(myFiles, isNotNull);
+      expect(myFiles!.toolName, equals('SEARCH_FILES_AND_OCR'));
+
       final invoice = agentService.parseToolCall('find tax invoice');
       expect(invoice, isNotNull);
       expect(invoice!.toolName, equals('SEARCH_FILES_AND_OCR'));

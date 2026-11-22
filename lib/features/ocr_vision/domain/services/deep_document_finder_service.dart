@@ -319,6 +319,14 @@ class DeepDocumentFinderService {
           name.contains('passport');
     }
 
+    if (q.contains('password') || q.contains('passcode') || q.contains('secret') || q.contains('credential')) {
+      return t.contains('password') ||
+          t.contains('passcode') ||
+          t.contains('secret') ||
+          t.contains('credential') ||
+          name.contains('password');
+    }
+
     if (q.contains('ticket') || q.contains('boarding') || q.contains('flight') || q.contains('booking')) {
       return classification.type == DocumentType.ticketBooking ||
           t.contains('ticket') ||

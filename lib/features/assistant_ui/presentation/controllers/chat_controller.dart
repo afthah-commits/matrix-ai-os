@@ -80,13 +80,14 @@ class ChatState {
     List<ChatMessage>? messages,
     bool? isLoading,
     String? errorMessage,
+    bool clearError = false,
     AiProvider? currentProvider,
     bool? isAirGapped,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
       isLoading: isLoading ?? this.isLoading,
-      errorMessage: errorMessage,
+      errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       currentProvider: currentProvider ?? this.currentProvider,
       isAirGapped: isAirGapped ?? this.isAirGapped,
     );
@@ -158,9 +159,9 @@ class ChatController extends StateNotifier<ChatState> {
     );
 
     state = state.copyWith(
-      messages: [...state.messages, userMsg],
+      messages: List<ChatMessage>.unmodifiable([...state.messages, userMsg]),
       isLoading: true,
-      errorMessage: null,
+      clearError: true,
     );
 
     try {
@@ -198,11 +199,15 @@ class ChatController extends StateNotifier<ChatState> {
           );
 
           state = state.copyWith(
-            messages: [...state.messages, confirmationMsg],
+            messages: List<ChatMessage>.unmodifiable([...state.messages, confirmationMsg]),
             isLoading: false,
           );
 
-          await _voiceService.speak('Please confirm action: ${action.description}');
+          try {
+            await _voiceService.speak('Please confirm action: ${action.description}');
+          } catch (e) {
+            debugPrint('[ChatController] TTS confirmation speak error: $e');
+          }
           return;
         } else {
           // Safe action: execute directly
@@ -244,11 +249,15 @@ class ChatController extends StateNotifier<ChatState> {
           );
 
           state = state.copyWith(
-            messages: [...state.messages, actionMsg],
+            messages: List<ChatMessage>.unmodifiable([...state.messages, actionMsg]),
             isLoading: false,
           );
 
-          await _voiceService.speak(result.message);
+          try {
+            await _voiceService.speak(result.message);
+          } catch (e) {
+            debugPrint('[ChatController] TTS action speak error: $e');
+          }
           return;
         }
       }
@@ -258,7 +267,9 @@ class ChatController extends StateNotifier<ChatState> {
 
       final aiMsg = ChatMessage(
         id: 'ai_${DateTime.now().millisecondsSinceEpoch}',
-        text: response.text,
+        text: response.text.isNotEmpty
+            ? response.text
+            : 'I processed your query, but no response text was returned.',
         isUser: false,
         timestamp: DateTime.now(),
         tokensMasked: response.tokensMasked,
@@ -274,23 +285,27 @@ class ChatController extends StateNotifier<ChatState> {
       );
 
       state = state.copyWith(
-        messages: [...state.messages, aiMsg],
+        messages: List<ChatMessage>.unmodifiable([...state.messages, aiMsg]),
         isLoading: false,
       );
 
-      // Voice response if enabled
-      await _voiceService.speak(response.text);
+      // Voice response if enabled (isolated try-catch so TTS failure never breaks UI)
+      try {
+        await _voiceService.speak(response.text);
+      } catch (e) {
+        debugPrint('[ChatController] TTS speak error: $e');
+      }
     } catch (e) {
       final errorMsg = ChatMessage(
         id: 'error_${DateTime.now().millisecondsSinceEpoch}',
-        text: 'An error occurred while processing your request: $e',
+        text: 'Notice: Could not process request ($e). Matrix Core is operating in offline mode.',
         isUser: false,
         timestamp: DateTime.now(),
         isOfflineEngine: true,
       );
 
       state = state.copyWith(
-        messages: [...state.messages, errorMsg],
+        messages: List<ChatMessage>.unmodifiable([...state.messages, errorMsg]),
         isLoading: false,
         errorMessage: e.toString(),
       );
@@ -327,10 +342,12 @@ class ChatController extends StateNotifier<ChatState> {
     );
 
     state = state.copyWith(
-      messages: [...state.messages, resultMsg],
+      messages: List<ChatMessage>.unmodifiable([...state.messages, resultMsg]),
     );
 
-    await _voiceService.speak(result.message);
+    try {
+      await _voiceService.speak(result.message);
+    } catch (_) {}
   }
 
   /// Cancels a pending action from the UI.
@@ -345,7 +362,7 @@ class ChatController extends StateNotifier<ChatState> {
     );
 
     state = state.copyWith(
-      messages: [...state.messages, cancelMsg],
+      messages: List<ChatMessage>.unmodifiable([...state.messages, cancelMsg]),
     );
   }
 
@@ -354,9 +371,13 @@ class ChatController extends StateNotifier<ChatState> {
     try {
       final res = await _actionDispatcher.openFileUri(uri, mimeType: mimeType);
       if (res['success'] == true) {
-        await _voiceService.speak('Opening document on your device');
+        try {
+          await _voiceService.speak('Opening document on your device');
+        } catch (_) {}
       } else {
-        await _voiceService.speak('Could not open file');
+        try {
+          await _voiceService.speak('Could not open file');
+        } catch (_) {}
       }
     } catch (e) {
       debugPrint('[ChatNotifier] Error opening document: $e');
@@ -365,7 +386,8 @@ class ChatController extends StateNotifier<ChatState> {
 
   void clearChat() {
     state = state.copyWith(
-      messages: [
+      clearError: true,
+      messages: List<ChatMessage>.unmodifiable([
         ChatMessage(
           id: 'cleared',
           text: 'Chat history cleared. All local encrypted memories remain secure in ObjectBox.',
@@ -374,7 +396,7 @@ class ChatController extends StateNotifier<ChatState> {
           isOfflineEngine: true,
           providerUsed: 'Matrix Core',
         ),
-      ],
+      ]),
     );
   }
 }

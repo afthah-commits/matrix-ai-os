@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:matrix_ai_os/core/database/database_providers.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/services/action_dispatcher_service.dart';
+import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
 import 'package:matrix_ai_os/features/device_ingestion/data/datasources/device_stats_native_datasource.dart';
 import 'package:matrix_ai_os/features/device_ingestion/domain/services/call_log_ingestion_service.dart';
 import 'package:matrix_ai_os/features/device_ingestion/domain/services/notification_ingestion_handler.dart';
@@ -34,6 +36,8 @@ class DevicePermissionsState {
   final bool notificationListenerGranted;
   final bool callLogGranted;
   final bool galleryPermissionGranted;
+  final bool microphoneGranted;
+  final bool allFilesGranted;
   final bool isSyncing;
   final String? lastSyncResult;
 
@@ -42,6 +46,8 @@ class DevicePermissionsState {
     this.notificationListenerGranted = false,
     this.callLogGranted = false,
     this.galleryPermissionGranted = false,
+    this.microphoneGranted = false,
+    this.allFilesGranted = false,
     this.isSyncing = false,
     this.lastSyncResult,
   });
@@ -51,6 +57,8 @@ class DevicePermissionsState {
     bool? notificationListenerGranted,
     bool? callLogGranted,
     bool? galleryPermissionGranted,
+    bool? microphoneGranted,
+    bool? allFilesGranted,
     bool? isSyncing,
     String? lastSyncResult,
   }) {
@@ -59,6 +67,8 @@ class DevicePermissionsState {
       notificationListenerGranted: notificationListenerGranted ?? this.notificationListenerGranted,
       callLogGranted: callLogGranted ?? this.callLogGranted,
       galleryPermissionGranted: galleryPermissionGranted ?? this.galleryPermissionGranted,
+      microphoneGranted: microphoneGranted ?? this.microphoneGranted,
+      allFilesGranted: allFilesGranted ?? this.allFilesGranted,
       isSyncing: isSyncing ?? this.isSyncing,
       lastSyncResult: lastSyncResult ?? this.lastSyncResult,
     );
@@ -70,19 +80,22 @@ class DeviceIngestionController extends StateNotifier<DevicePermissionsState> {
   final UsageIngestionService _usageService;
   final CallLogIngestionService _callLogService;
   final NotificationIngestionHandler _notifHandler;
+  final ActionDispatcherService? _actionDispatcher;
 
   DeviceIngestionController({
     required DeviceStatsNativeDataSource dataSource,
     required UsageIngestionService usageService,
     required CallLogIngestionService callLogService,
     required NotificationIngestionHandler notifHandler,
+    ActionDispatcherService? actionDispatcher,
   })  : _dataSource = dataSource,
         _usageService = usageService,
         _callLogService = callLogService,
         _notifHandler = notifHandler,
+        _actionDispatcher = actionDispatcher,
         super(const DevicePermissionsState());
 
-  /// Checks live permission status for Usage Stats, Notification Listener, Call Logs, and Gallery.
+  /// Checks live permission status for Usage Stats, Notification Listener, Call Logs, Gallery, Mic, and All Files.
   Future<void> checkPermissions() async {
     try {
       final perms = await _dataSource.checkPermissions();
@@ -92,11 +105,23 @@ class DeviceIngestionController extends StateNotifier<DevicePermissionsState> {
         galleryGranted = pmState.hasAccess;
       } catch (_) {}
 
+      bool micGranted = false;
+      try {
+        micGranted = await Permission.microphone.isGranted;
+      } catch (_) {}
+
+      bool allFilesGranted = false;
+      try {
+        allFilesGranted = await _actionDispatcher?.checkAllFilesAccess() ?? false;
+      } catch (_) {}
+
       state = state.copyWith(
         usageStatsGranted: perms['usageStatsGranted'] ?? false,
         notificationListenerGranted: perms['notificationListenerGranted'] ?? false,
         callLogGranted: perms['callLogGranted'] ?? false,
         galleryPermissionGranted: galleryGranted,
+        microphoneGranted: micGranted,
+        allFilesGranted: allFilesGranted,
       );
     } catch (_) {}
   }
@@ -105,6 +130,20 @@ class DeviceIngestionController extends StateNotifier<DevicePermissionsState> {
   Future<void> requestCallLogPermission() async {
     final status = await Permission.phone.request();
     state = state.copyWith(callLogGranted: status.isGranted);
+  }
+
+  /// Requests Microphone permission via permission_handler.
+  Future<void> requestMicrophonePermission() async {
+    final status = await Permission.microphone.request();
+    state = state.copyWith(microphoneGranted: status.isGranted);
+    if (!status.isGranted) {
+      await openAppSettings();
+    }
+  }
+
+  /// Opens Android Settings for All Files Access permission.
+  Future<void> openAllFilesSettings() async {
+    await _actionDispatcher?.openAllFilesSettings();
   }
 
   /// Requests Gallery/Photo access permission via photo_manager.
@@ -162,12 +201,14 @@ final deviceIngestionControllerProvider =
   final usageService = ref.watch(usageIngestionServiceProvider);
   final callLogService = ref.watch(callLogIngestionServiceProvider);
   final notifHandler = ref.watch(notificationIngestionHandlerProvider);
+  final actionDispatcher = ref.watch(actionDispatcherServiceProvider);
 
   final controller = DeviceIngestionController(
     dataSource: dataSource,
     usageService: usageService,
     callLogService: callLogService,
     notifHandler: notifHandler,
+    actionDispatcher: actionDispatcher,
   );
   controller.checkPermissions();
   return controller;

@@ -8,11 +8,37 @@ import 'package:matrix_ai_os/features/assistant_ui/presentation/controllers/dash
 import 'package:matrix_ai_os/features/device_ingestion/presentation/providers/device_ingestion_providers.dart';
 import 'package:matrix_ai_os/features/ocr_vision/presentation/providers/ocr_vision_providers.dart';
 
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(deviceIngestionControllerProvider.notifier).checkPermissions();
+      ref.invalidate(accessibilityEnabledProvider);
+      ref.read(dashboardControllerProvider.notifier).refreshMetrics();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(dashboardControllerProvider);
     final controller = ref.read(dashboardControllerProvider.notifier);
 
@@ -600,10 +626,10 @@ class DashboardScreen extends ConsumerWidget {
             children: [
               Row(
                 children: const [
-                  Icon(Icons.security_update_good_rounded, color: Color(0xFF06B6D4), size: 18),
+                  Icon(Icons.health_and_safety_rounded, color: Color(0xFF06B6D4), size: 18),
                   SizedBox(width: 8),
                   Text(
-                    'DEVICE SENSORS & PERMISSIONS',
+                    'PERMISSION DOCTOR (SYSTEM WIZARD)',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 11,
@@ -617,14 +643,37 @@ class DashboardScreen extends ConsumerWidget {
                 icon: const Icon(Icons.refresh, size: 18, color: Colors.grey),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                onPressed: () => permController.checkPermissions(),
+                onPressed: () {
+                  permController.checkPermissions();
+                  ref.invalidate(accessibilityEnabledProvider);
+                },
                 tooltip: 'Refresh permission states',
               ),
             ],
           ),
           const Divider(color: Color(0xFF1F2937), height: 16),
 
-          // 1. Usage Stats Permission
+          // 1. Microphone Permission (Voice Assistant)
+          _buildPermissionRow(
+            title: 'Microphone (Voice Assistant)',
+            isGranted: permState.microphoneGranted,
+            onAction: () => permController.requestMicrophonePermission(),
+            actionLabel: 'Grant',
+            emerald: emerald,
+          ),
+          const SizedBox(height: 8),
+
+          // 2. All Files Access Permission (PDF & Document Finder)
+          _buildPermissionRow(
+            title: 'All Files Access (PDF & Passport Finder)',
+            isGranted: permState.allFilesGranted,
+            onAction: () => permController.openAllFilesSettings(),
+            actionLabel: 'Settings',
+            emerald: emerald,
+          ),
+          const SizedBox(height: 8),
+
+          // 3. Usage Stats Permission
           _buildPermissionRow(
             title: 'Usage Access (Screen Time)',
             isGranted: permState.usageStatsGranted,
@@ -634,7 +683,7 @@ class DashboardScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
 
-          // 2. Notification Listener Permission
+          // 4. Notification Listener Permission
           _buildPermissionRow(
             title: 'Notification Access (Bank Alerts)',
             isGranted: permState.notificationListenerGranted,
@@ -644,7 +693,7 @@ class DashboardScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
 
-          // 3. Call Log Permission
+          // 5. Call Log Permission
           _buildPermissionRow(
             title: 'Call Logs (Telephony Stream)',
             isGranted: permState.callLogGranted,
@@ -654,9 +703,9 @@ class DashboardScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
 
-          // 4. Gallery Permission (Phase 3 Vision OCR)
+          // 6. Gallery Permission (Phase 3 Vision OCR)
           _buildPermissionRow(
-            title: 'Gallery / Storage (Visual OCR)',
+            title: 'Gallery / Photos (Visual OCR)',
             isGranted: permState.galleryPermissionGranted,
             onAction: () => permController.requestGalleryPermission(),
             actionLabel: 'Grant',
@@ -664,7 +713,7 @@ class DashboardScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
 
-          // 5. Accessibility Service Permission (Phase 5 Action & Screen Context)
+          // 7. Accessibility Service Permission (Phase 5 Action & Screen Context)
           _buildPermissionRow(
             title: 'Accessibility (Action & Screen Reader)',
             isGranted: isAccessibilityGranted,
@@ -684,51 +733,58 @@ class DashboardScreen extends ConsumerWidget {
     required String actionLabel,
     required Color emerald,
   }) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
+    return InkWell(
+      onTap: isGranted ? null : onAction,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: isGranted ? emerald : Colors.redAccent,
-                shape: BoxShape.circle,
+            Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: isGranted ? emerald : Colors.redAccent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ],
+            ),
+            if (isGranted)
+              Row(
+                children: [
+                  Icon(Icons.check_circle, color: emerald, size: 14),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Active',
+                    style: TextStyle(color: emerald, fontSize: 11, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              )
+            else
+              TextButton(
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  backgroundColor: const Color(0xFF1E293B),
+                  foregroundColor: const Color(0xFF38BDF8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                ),
+                onPressed: onAction,
+                child: Text(actionLabel, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
               ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              title,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-            ),
           ],
         ),
-        if (isGranted)
-          Row(
-            children: [
-              Icon(Icons.check_circle, color: emerald, size: 14),
-              const SizedBox(width: 4),
-              Text(
-                'Active',
-                style: TextStyle(color: emerald, fontSize: 11, fontWeight: FontWeight.w600),
-              ),
-            ],
-          )
-        else
-          TextButton(
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              backgroundColor: const Color(0xFF1E293B),
-              foregroundColor: const Color(0xFF38BDF8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-            ),
-            onPressed: onAction,
-            child: Text(actionLabel, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-          ),
-      ],
+      ),
     );
   }
 

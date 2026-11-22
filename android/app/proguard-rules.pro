@@ -35,6 +35,9 @@
 # Speech to Text and Flutter TTS Native Bridges
 -keep class com.csdcorp.speech_to_text.** { *; }
 -keep class com.tundralabs.fluttertts.** { *; }
+-keep class com.fluttertts.** { *; }
+-keep class * implements io.flutter.plugin.common.MethodChannel$MethodCallHandler { *; }
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 
 # Suppress Google Play Core warnings for deferred components in Flutter
 -dontwarn com.google.android.play.core.**

@@ -557,4 +557,21 @@ class ActionDispatcherService {
       await _channel.invokeMethod<bool>('openAccessibilitySettings');
     } catch (_) {}
   }
+
+  /// Checks if All Files Access (MANAGE_EXTERNAL_STORAGE) is granted on Android 11+.
+  Future<bool> checkAllFilesAccess() async {
+    try {
+      final granted = await _channel.invokeMethod<bool>('checkAllFilesAccess');
+      return granted ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Opens Android Settings for All Files Access permission.
+  Future<void> openAllFilesSettings() async {
+    try {
+      await _channel.invokeMethod<bool>('requestAllFilesAccess');
+    } catch (_) {}
+  }
 }

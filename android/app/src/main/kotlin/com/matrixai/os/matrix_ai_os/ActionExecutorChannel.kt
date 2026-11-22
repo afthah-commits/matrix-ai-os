@@ -11,6 +11,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.provider.Settings
@@ -163,6 +165,36 @@ class ActionExecutorChannel(
                     val mime = call.argument<String>("mimeType")
                     val openResult = openFileUri(uri, mime)
                     result.success(openResult)
+                }
+
+                "checkAllFilesAccess" -> {
+                    val hasAccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        Environment.isExternalStorageManager()
+                    } else {
+                        true
+                    }
+                    result.success(hasAccess)
+                }
+
+                "requestAllFilesAccess" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        try {
+                            val uri = Uri.parse("package:${context.packageName}")
+                            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, uri).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            val fallbackIntent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(fallbackIntent)
+                            result.success(true)
+                        }
+                    } else {
+                        result.success(true)
+                    }
                 }
 
                 else -> result.notImplemented()
@@ -368,8 +400,8 @@ class ActionExecutorChannel(
     }
 
     /**
-     * Queries Android's MediaStore for images (screenshots, camera photos) and files (PDFs in Downloads/Documents)
-     * matching the requested keyword, or recent documents.
+     * Queries Android's MediaStore and direct storage directories (Downloads, Documents, Pictures, DCIM)
+     * for images (screenshots, camera photos) and files (PDFs) matching the requested keyword, or recent documents.
      */
     fun searchDeviceFiles(rawQuery: String): List<Map<String, Any>> {
         val results = mutableListOf<Map<String, Any>>()
@@ -378,14 +410,19 @@ class ActionExecutorChannel(
         // Extract potential search keywords
         val keywords: List<String> = when {
             cleanQuery.contains("passport") -> listOf("passport", "pass_port")
+            cleanQuery.contains("password") -> listOf("password", "passcode", "secret", "credential")
             cleanQuery.contains("ticket") || cleanQuery.contains("boarding") -> listOf("ticket", "boarding", "flight", "booking", "train", "pnr")
             cleanQuery.contains("invoice") || cleanQuery.contains("bill") || cleanQuery.contains("receipt") -> listOf("invoice", "bill", "receipt", "tax", "order")
             cleanQuery.contains("statement") -> listOf("statement", "bank", "account")
             cleanQuery.contains("id") || cleanQuery.contains("aadhaar") || cleanQuery.contains("pan") -> listOf("id", "aadhaar", "pan", "card", "license")
-            cleanQuery.contains("document") || cleanQuery.contains("doc") || cleanQuery.contains("pdf") -> listOf("passport", "ticket", "invoice", "receipt", "statement", "bill", "doc")
+            cleanQuery.contains("document") || cleanQuery.contains("doc") || cleanQuery.contains("pdf") || cleanQuery.contains("file") -> listOf("passport", "ticket", "invoice", "receipt", "statement", "bill", "doc")
             cleanQuery.isNotEmpty() -> cleanQuery.split(" ").filter { it.length > 2 }
             else -> emptyList()
         }
+
+        val matchedResults = mutableListOf<Map<String, Any>>()
+        val recentResults = mutableListOf<Map<String, Any>>()
+        val seenPaths = mutableSetOf<String>()
 
         try {
             // 1. Query Images (MediaStore Images)
@@ -415,7 +452,7 @@ class ActionExecutorChannel(
                 val pathCol = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
 
                 var count = 0
-                while (cursor.moveToNext() && count < 20) {
+                while (cursor.moveToNext() && count < 30) {
                     val id = cursor.getLong(idCol)
                     val name = cursor.getString(nameCol) ?: ""
                     val mime = cursor.getString(mimeCol) ?: "image/jpeg"
@@ -423,21 +460,27 @@ class ActionExecutorChannel(
                     val size = cursor.getLong(sizeCol)
                     val path = if (pathCol != -1) cursor.getString(pathCol) ?: "" else ""
 
+                    val contentUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                    val item = mapOf(
+                        "uri" to contentUri.toString(),
+                        "displayName" to name,
+                        "mimeType" to mime,
+                        "dateModified" to date,
+                        "sizeBytes" to size,
+                        "filePath" to path
+                    )
+
+                    if (path.isNotEmpty()) seenPaths.add(path)
+
                     val nameLower = name.lowercase()
                     val matches = if (keywords.isEmpty()) true else keywords.any { nameLower.contains(it) }
 
                     if (matches) {
-                        val contentUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
-                        results.add(mapOf(
-                            "uri" to contentUri.toString(),
-                            "displayName" to name,
-                            "mimeType" to mime,
-                            "dateModified" to date,
-                            "sizeBytes" to size,
-                            "filePath" to path
-                        ))
-                        count++
+                        matchedResults.add(item)
+                    } else if (recentResults.size < 15) {
+                        recentResults.add(item)
                     }
+                    count++
                 }
             }
 
@@ -472,7 +515,7 @@ class ActionExecutorChannel(
                 val pathCol = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
 
                 var count = 0
-                while (cursor.moveToNext() && count < 15) {
+                while (cursor.moveToNext() && count < 20) {
                     val id = cursor.getLong(idCol)
                     val name = cursor.getString(nameCol) ?: ""
                     val mime = cursor.getString(mimeCol) ?: "application/pdf"
@@ -480,20 +523,71 @@ class ActionExecutorChannel(
                     val size = cursor.getLong(sizeCol)
                     val path = if (pathCol != -1) cursor.getString(pathCol) ?: "" else ""
 
+                    val contentUri = ContentUris.withAppendedId(fileUri, id)
+                    val item = mapOf(
+                        "uri" to contentUri.toString(),
+                        "displayName" to name,
+                        "mimeType" to mime,
+                        "dateModified" to date,
+                        "sizeBytes" to size,
+                        "filePath" to path
+                    )
+
+                    if (path.isNotEmpty()) seenPaths.add(path)
+
                     val nameLower = name.lowercase()
                     val matches = if (keywords.isEmpty()) true else keywords.any { nameLower.contains(it) }
 
                     if (matches) {
-                        val contentUri = ContentUris.withAppendedId(fileUri, id)
-                        results.add(mapOf(
-                            "uri" to contentUri.toString(),
-                            "displayName" to name,
-                            "mimeType" to mime,
-                            "dateModified" to date,
-                            "sizeBytes" to size,
-                            "filePath" to path
-                        ))
-                        count++
+                        matchedResults.add(item)
+                    } else if (recentResults.size < 20) {
+                        recentResults.add(item)
+                    }
+                    count++
+                }
+            }
+
+            // 3. Direct File System Scan if All-Files Access is granted
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()) {
+                val searchDirs = listOf(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM)
+                )
+
+                for (dir in searchDirs) {
+                    if (dir != null && dir.exists() && dir.isDirectory) {
+                        dir.listFiles()?.take(50)?.forEach { file ->
+                            if (file.isFile && !seenPaths.contains(file.absolutePath)) {
+                                val name = file.name
+                                val nameLower = name.lowercase()
+                                val isDocOrImage = nameLower.endsWith(".pdf") ||
+                                        nameLower.endsWith(".jpg") ||
+                                        nameLower.endsWith(".jpeg") ||
+                                        nameLower.endsWith(".png")
+
+                                if (isDocOrImage) {
+                                    val mime = if (nameLower.endsWith(".pdf")) "application/pdf" else "image/jpeg"
+                                    val item = mapOf(
+                                        "uri" to Uri.fromFile(file).toString(),
+                                        "displayName" to name,
+                                        "mimeType" to mime,
+                                        "dateModified" to file.lastModified(),
+                                        "sizeBytes" to file.length(),
+                                        "filePath" to file.absolutePath
+                                    )
+                                    seenPaths.add(file.absolutePath)
+
+                                    val matches = if (keywords.isEmpty()) true else keywords.any { nameLower.contains(it) }
+                                    if (matches) {
+                                        matchedResults.add(item)
+                                    } else if (recentResults.size < 25) {
+                                        recentResults.add(item)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -501,7 +595,14 @@ class ActionExecutorChannel(
             Log.e(TAG, "Error querying device files: ${e.message}")
         }
 
-        return results
+        // Return keyword matches first, followed by recent unindexed images/PDFs for ML Kit OCR
+        results.addAll(matchedResults)
+        for (item in recentResults) {
+            if (!results.any { it["filePath"] == item["filePath"] || it["uri"] == item["uri"] }) {
+                results.add(item)
+            }
+        }
+        return results.take(25)
     }
 
     /**

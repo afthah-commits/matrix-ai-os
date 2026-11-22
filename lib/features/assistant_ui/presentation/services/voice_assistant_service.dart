@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 /// Service managing Speech-to-Text (STT) mic input and Text-to-Speech (TTS)
@@ -13,12 +14,19 @@ class VoiceAssistantService extends ChangeNotifier {
   bool _isSpeaking = false;
   bool _isTtsEnabled = true;
   String _lastRecognizedWords = '';
+  String? _errorMessage;
 
   bool get isListening => _isListening;
   bool get isSpeaking => _isSpeaking;
   bool get isTtsEnabled => _isTtsEnabled;
   String get lastRecognizedWords => _lastRecognizedWords;
   bool get isInitialized => _isSpeechInitialized;
+  String? get errorMessage => _errorMessage;
+
+  void clearError() {
+    _errorMessage = null;
+    notifyListeners();
+  }
 
   VoiceAssistantService() {
     _initTts();
@@ -54,9 +62,20 @@ class VoiceAssistantService extends ChangeNotifier {
   Future<bool> initSpeech() async {
     if (_isSpeechInitialized) return true;
     try {
+      final micStatus = await Permission.microphone.status;
+      if (!micStatus.isGranted) {
+        final req = await Permission.microphone.request();
+        if (!req.isGranted) {
+          _errorMessage = 'Microphone permission denied. Please enable it in Settings.';
+          notifyListeners();
+          return false;
+        }
+      }
+
       _isSpeechInitialized = await _speechToText.initialize(
         onError: (val) {
           _isListening = false;
+          _errorMessage = val.errorMsg;
           notifyListeners();
         },
         onStatus: (status) {
@@ -66,10 +85,18 @@ class VoiceAssistantService extends ChangeNotifier {
           }
         },
       );
+
+      if (!_isSpeechInitialized) {
+        _errorMessage = 'Speech recognition service is not available on this device.';
+      } else {
+        _errorMessage = null;
+      }
       notifyListeners();
       return _isSpeechInitialized;
     } catch (e) {
       debugPrint('[VoiceAssistantService] Speech initialization error: $e');
+      _errorMessage = 'Speech initialization failed: $e';
+      notifyListeners();
       return false;
     }
   }
@@ -78,6 +105,16 @@ class VoiceAssistantService extends ChangeNotifier {
   Future<void> startListening({
     required Function(String text) onResult,
   }) async {
+    final micStatus = await Permission.microphone.status;
+    if (!micStatus.isGranted) {
+      final req = await Permission.microphone.request();
+      if (!req.isGranted) {
+        _errorMessage = 'Microphone permission denied. Cannot listen.';
+        notifyListeners();
+        return;
+      }
+    }
+
     if (!_isSpeechInitialized) {
       final ok = await initSpeech();
       if (!ok) return;
@@ -88,6 +125,7 @@ class VoiceAssistantService extends ChangeNotifier {
     }
 
     _lastRecognizedWords = '';
+    _errorMessage = null;
     _isListening = true;
     notifyListeners();
 
@@ -109,6 +147,7 @@ class VoiceAssistantService extends ChangeNotifier {
       );
     } catch (e) {
       _isListening = false;
+      _errorMessage = 'Microphone listen error: $e';
       notifyListeners();
     }
   }

@@ -292,8 +292,9 @@ If the user request is an action that can be executed by a tool, you MUST respon
       );
     }
 
-    // 10. Deep Document, Passport & OCR Search
+    // 10. Deep Document, Passport, Password & File Search
     if (lower.contains('passport') ||
+        lower.contains('password') ||
         lower.contains('boarding pass') ||
         lower.contains('ticket') ||
         lower.contains('invoice') ||
@@ -301,9 +302,19 @@ If the user request is an action that can be executed by a tool, you MUST respon
         lower.contains('bill') ||
         lower.contains('statement') ||
         lower.contains('document') ||
-        lower.contains('search files') ||
+        lower.contains('my documents') ||
+        lower.contains('my files') ||
         lower.contains('find files') ||
-        lower.contains('find my doc')) {
+        lower.contains('search files') ||
+        lower.contains('find file') ||
+        lower.contains('search file') ||
+        lower.contains('find doc') ||
+        lower.contains('find my doc') ||
+        lower.contains('show doc') ||
+        lower.contains('my scan') ||
+        lower.contains('my id') ||
+        lower.contains('aadhaar') ||
+        lower.contains('pan card')) {
       return AgentToolCall(
         toolName: AgentToolType.searchFilesAndOcr.code,
         arguments: {'query': userPrompt.trim()},

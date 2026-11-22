@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/action_dispatcher_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/autonomous_agent_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/controllers/chat_controller.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/screens/ai_settings_modal.dart';
+import 'package:matrix_ai_os/features/assistant_ui/presentation/services/voice_assistant_service.dart';
 import 'package:matrix_ai_os/features/ocr_vision/domain/services/deep_document_finder_service.dart';
 
 /// Full-featured, privacy-first conversational Assistant Chat Screen
@@ -44,16 +46,24 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
     super.dispose();
   }
 
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+  void _scrollToBottom({bool immediate = false}) {
+    void doScroll() {
       if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
+        if (immediate) {
+          _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+        } else {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOut,
+          );
+        }
       }
-    });
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => doScroll());
+    Future.delayed(const Duration(milliseconds: 100), () => doScroll());
+    Future.delayed(const Duration(milliseconds: 280), () => doScroll());
   }
 
   void _handleSend([String? presetText]) {
@@ -62,7 +72,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
 
     ref.read(chatControllerProvider.notifier).sendMessage(query);
     _inputController.clear();
-    _scrollToBottom();
+    _scrollToBottom(immediate: true);
   }
 
   @override
@@ -80,9 +90,38 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
 
     // Auto-scroll on new message
     ref.listen<ChatState>(chatControllerProvider, (previous, next) {
-      if (previous?.messages.length != next.messages.length ||
+      if ((previous?.messages.length ?? 0) != next.messages.length ||
           previous?.isLoading != next.isLoading) {
         _scrollToBottom();
+      }
+    });
+
+    // Listen to voice errors and surface immediate feedback
+    ref.listen<VoiceAssistantService>(voiceAssistantServiceProvider, (previous, next) {
+      if (next.errorMessage != null && next.errorMessage != previous?.errorMessage) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFF7F1D1D),
+            content: Row(
+              children: [
+                const Icon(Icons.mic_off, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    next.errorMessage!,
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+            action: SnackBarAction(
+              label: 'Settings',
+              textColor: const Color(0xFFFCA5A5),
+              onPressed: () => openAppSettings(),
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
     });
 
@@ -200,7 +239,8 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.only(left: 14, right: 14, top: 12, bottom: 20),
               itemCount: chatState.messages.length + (chatState.isLoading ? 1 : 0),
               itemBuilder: (context, index) {
                 if (index == chatState.messages.length) {
