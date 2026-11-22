@@ -41,6 +41,8 @@ dependencies:
   path_provider: ^2.1.6
   intl: ^0.20.3
   cryptography: ^2.9.0
+  workmanager: ^0.10.10
+  permission_handler: 12.0.1
 
 dev_dependencies:
   flutter_test:

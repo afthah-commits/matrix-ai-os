@@ -3,6 +3,9 @@ import 'package:matrix_ai_os/core/constants/app_constants.dart';
 import 'package:matrix_ai_os/core/database/database_providers.dart';
 import 'package:matrix_ai_os/core/database/local_database_service.dart';
 import 'package:matrix_ai_os/core/database/storage_pruner_service.dart';
+import 'package:matrix_ai_os/features/device_ingestion/domain/services/call_log_ingestion_service.dart';
+import 'package:matrix_ai_os/features/device_ingestion/domain/services/notification_ingestion_handler.dart';
+import 'package:matrix_ai_os/features/device_ingestion/domain/services/usage_ingestion_service.dart';
 
 class DashboardState {
   final bool isInitialized;
@@ -11,6 +14,10 @@ class DashboardState {
   final int totalMemoryNodes;
   final int totalDailySummaries;
   final int dbSizeBytes;
+  final int screenTimeCount;
+  final int callLogCount;
+  final int transactionCount;
+  final int noteCount;
   final String? lastTestRawCiphertext;
   final String? lastTestDecryptedText;
   final List<String> operationLogs;
@@ -23,6 +30,10 @@ class DashboardState {
     this.totalMemoryNodes = 0,
     this.totalDailySummaries = 0,
     this.dbSizeBytes = 0,
+    this.screenTimeCount = 0,
+    this.callLogCount = 0,
+    this.transactionCount = 0,
+    this.noteCount = 0,
     this.lastTestRawCiphertext,
     this.lastTestDecryptedText,
     this.operationLogs = const [],
@@ -36,6 +47,10 @@ class DashboardState {
     int? totalMemoryNodes,
     int? totalDailySummaries,
     int? dbSizeBytes,
+    int? screenTimeCount,
+    int? callLogCount,
+    int? transactionCount,
+    int? noteCount,
     String? lastTestRawCiphertext,
     String? lastTestDecryptedText,
     List<String>? operationLogs,
@@ -48,6 +63,10 @@ class DashboardState {
       totalMemoryNodes: totalMemoryNodes ?? this.totalMemoryNodes,
       totalDailySummaries: totalDailySummaries ?? this.totalDailySummaries,
       dbSizeBytes: dbSizeBytes ?? this.dbSizeBytes,
+      screenTimeCount: screenTimeCount ?? this.screenTimeCount,
+      callLogCount: callLogCount ?? this.callLogCount,
+      transactionCount: transactionCount ?? this.transactionCount,
+      noteCount: noteCount ?? this.noteCount,
       lastTestRawCiphertext: lastTestRawCiphertext ?? this.lastTestRawCiphertext,
       lastTestDecryptedText: lastTestDecryptedText ?? this.lastTestDecryptedText,
       operationLogs: operationLogs ?? this.operationLogs,
@@ -78,6 +97,10 @@ class DashboardController extends StateNotifier<DashboardState> {
       final count = _dbService.getMemoryNodeCount();
       final summaryCount = _dbService.getDailySummaryCount();
       final size = await _dbService.getDatabaseSizeInBytes();
+      final screenTime = _dbService.getCategoryCount(MemoryCategory.screenTime);
+      final callLogs = _dbService.getCategoryCount(MemoryCategory.callLog);
+      final transactions = _dbService.getCategoryCount(MemoryCategory.transaction);
+      final notes = _dbService.getCategoryCount(MemoryCategory.note);
 
       final logs = List<String>.from(state.operationLogs)
         ..add('[SYSTEM] Initialized ObjectBox NoSQL Engine.')
@@ -91,6 +114,10 @@ class DashboardController extends StateNotifier<DashboardState> {
         totalMemoryNodes: count,
         totalDailySummaries: summaryCount,
         dbSizeBytes: size,
+        screenTimeCount: screenTime,
+        callLogCount: callLogs,
+        transactionCount: transactions,
+        noteCount: notes,
         operationLogs: logs,
       );
     } catch (e) {
@@ -110,8 +137,10 @@ class DashboardController extends StateNotifier<DashboardState> {
     state = state.copyWith(isLoading: true);
     try {
       final sampleNumber = state.totalMemoryNodes + 1;
-      final plaintext = 'Confidential memo #$sampleNumber: Financial transfer of \$${(sampleNumber * 12.5).toStringAsFixed(2)} confirmed.';
-      final metadata = '{"amount": ${(sampleNumber * 12.5).toStringAsFixed(2)}, "type": "payment", "sampleIndex": $sampleNumber}';
+      final plaintext =
+          'Confidential memo #$sampleNumber: Financial transfer of \$${(sampleNumber * 12.5).toStringAsFixed(2)} confirmed.';
+      final metadata =
+          '{"amount": ${(sampleNumber * 12.5).toStringAsFixed(2)}, "type": "payment", "sampleIndex": $sampleNumber}';
 
       // 1. Insert encrypted node
       final storedNode = await _dbService.insertMemoryNode(
@@ -129,6 +158,7 @@ class DashboardController extends StateNotifier<DashboardState> {
 
       final count = _dbService.getMemoryNodeCount();
       final size = await _dbService.getDatabaseSizeInBytes();
+      final txCount = _dbService.getCategoryCount(MemoryCategory.transaction);
 
       final logs = List<String>.from(state.operationLogs)
         ..add('[WRITE] Inserted MemoryNode #${storedNode.id} ($plaintext)')
@@ -139,6 +169,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         isLoading: false,
         totalMemoryNodes: count,
         dbSizeBytes: size,
+        transactionCount: txCount,
         lastTestRawCiphertext: rawCiphertext,
         lastTestDecryptedText: decrypted.content,
         operationLogs: logs,
@@ -151,6 +182,49 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
   }
 
+  /// Triggers a live manual device data ingestion pass across usage stats, calls, and notifications.
+  Future<void> syncDeviceData({
+    required UsageIngestionService usageService,
+    required CallLogIngestionService callLogService,
+    required NotificationIngestionHandler notifHandler,
+  }) async {
+    if (!state.isInitialized) return;
+
+    state = state.copyWith(isLoading: true);
+    try {
+      final usage = await usageService.syncTodayUsage();
+      final calls = await callLogService.syncRecentCalls(limit: 50);
+      final notifs = await notifHandler.drainBufferedNotifications();
+
+      final count = _dbService.getMemoryNodeCount();
+      final size = await _dbService.getDatabaseSizeInBytes();
+      final screenTime = _dbService.getCategoryCount(MemoryCategory.screenTime);
+      final callLogs = _dbService.getCategoryCount(MemoryCategory.callLog);
+      final transactions = _dbService.getCategoryCount(MemoryCategory.transaction);
+
+      final logs = List<String>.from(state.operationLogs)
+        ..add('[INGESTION] Synchronized device sensors:')
+        ..add('  - Screen Time: ${usage != null ? "${usage.totalScreenTimeMinutes}m" : "Up-to-date"}')
+        ..add('  - Telephony: $calls new call logs')
+        ..add('  - Notifications: $notifs new alerts parsed & encrypted');
+
+      state = state.copyWith(
+        isLoading: false,
+        totalMemoryNodes: count,
+        dbSizeBytes: size,
+        screenTimeCount: screenTime,
+        callLogCount: callLogs,
+        transactionCount: transactions,
+        operationLogs: logs,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: 'Device sync error: $e',
+      );
+    }
+  }
+
   /// Injects an expired memory node (>30 days old) and runs the storage pruner
   /// to demonstrate rolling retention and summary aggregation.
   Future<void> simulateRetentionAndPrune() async {
@@ -158,7 +232,6 @@ class DashboardController extends StateNotifier<DashboardState> {
 
     state = state.copyWith(isLoading: true);
     try {
-      // Create 3 synthetic expired nodes (35 days old)
       final pastDate = DateTime.now().subtract(const Duration(days: 35));
       await _dbService.insertMemoryNode(
         category: MemoryCategory.transaction,
@@ -178,12 +251,14 @@ class DashboardController extends StateNotifier<DashboardState> {
         timestamp: pastDate,
       );
 
-      // Run storage pruner
       final report = await _prunerService.pruneExpiredLogs();
 
       final count = _dbService.getMemoryNodeCount();
       final summaryCount = _dbService.getDailySummaryCount();
       final size = await _dbService.getDatabaseSizeInBytes();
+      final screenTime = _dbService.getCategoryCount(MemoryCategory.screenTime);
+      final callLogs = _dbService.getCategoryCount(MemoryCategory.callLog);
+      final transactions = _dbService.getCategoryCount(MemoryCategory.transaction);
 
       final logs = List<String>.from(state.operationLogs)
         ..add('[SIMULATION] Injected 3 expired logs (35 days old).')
@@ -195,6 +270,9 @@ class DashboardController extends StateNotifier<DashboardState> {
         totalMemoryNodes: count,
         totalDailySummaries: summaryCount,
         dbSizeBytes: size,
+        screenTimeCount: screenTime,
+        callLogCount: callLogs,
+        transactionCount: transactions,
         operationLogs: logs,
       );
     } catch (e) {
@@ -211,11 +289,19 @@ class DashboardController extends StateNotifier<DashboardState> {
     final count = _dbService.getMemoryNodeCount();
     final summaryCount = _dbService.getDailySummaryCount();
     final size = await _dbService.getDatabaseSizeInBytes();
+    final screenTime = _dbService.getCategoryCount(MemoryCategory.screenTime);
+    final callLogs = _dbService.getCategoryCount(MemoryCategory.callLog);
+    final transactions = _dbService.getCategoryCount(MemoryCategory.transaction);
+    final notes = _dbService.getCategoryCount(MemoryCategory.note);
 
     state = state.copyWith(
       totalMemoryNodes: count,
       totalDailySummaries: summaryCount,
       dbSizeBytes: size,
+      screenTimeCount: screenTime,
+      callLogCount: callLogs,
+      transactionCount: transactions,
+      noteCount: notes,
     );
   }
 }

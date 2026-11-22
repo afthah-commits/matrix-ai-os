@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:matrix_ai_os/core/constants/app_constants.dart';
 import 'package:matrix_ai_os/core/utils/formatters.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/controllers/dashboard_controller.dart';
+import 'package:matrix_ai_os/features/device_ingestion/presentation/providers/device_ingestion_providers.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -12,9 +13,13 @@ class DashboardScreen extends ConsumerWidget {
     final state = ref.watch(dashboardControllerProvider);
     final controller = ref.read(dashboardControllerProvider.notifier);
 
+    final permState = ref.watch(deviceIngestionControllerProvider);
+    final permController = ref.read(deviceIngestionControllerProvider.notifier);
+
     const primaryEmerald = Color(0xFF10B981);
     const neonCyan = Color(0xFF06B6D4);
     const accentViolet = Color(0xFF8B5CF6);
+    const amberAlert = Color(0xFFF59E0B);
     const surfaceCardColor = Color(0xFF111827);
     const borderColor = Color(0xFF1F2937);
 
@@ -32,7 +37,7 @@ class DashboardScreen extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: primaryEmerald.withValues(alpha: 0.4)),
               ),
-              child: Icon(Icons.security, color: primaryEmerald, size: 20),
+              child: const Icon(Icons.security, color: primaryEmerald, size: 20),
             ),
             const SizedBox(width: 10),
             Column(
@@ -69,11 +74,11 @@ class DashboardScreen extends ConsumerWidget {
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.bolt, color: neonCyan, size: 14),
-                const SizedBox(width: 4),
+              children: const [
+                Icon(Icons.sensors, color: neonCyan, size: 14),
+                SizedBox(width: 4),
                 Text(
-                  'PHASE 1.1',
+                  'PHASE 2.1',
                   style: TextStyle(
                     color: neonCyan,
                     fontSize: 11,
@@ -88,11 +93,14 @@ class DashboardScreen extends ConsumerWidget {
       ),
       body: state.isLoading && !state.isInitialized
           ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF10B981)),
+              child: CircularProgressIndicator(color: primaryEmerald),
             )
           : RefreshIndicator(
               color: primaryEmerald,
-              onRefresh: () => controller.refreshMetrics(),
+              onRefresh: () async {
+                await controller.refreshMetrics();
+                await permController.checkPermissions();
+              },
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16.0),
@@ -103,7 +111,7 @@ class DashboardScreen extends ConsumerWidget {
                     _buildSystemBanner(primaryEmerald),
                     const SizedBox(height: 16),
 
-                    // Metrics Grid
+                    // Core Metrics Grid
                     Row(
                       children: [
                         Expanded(
@@ -123,7 +131,7 @@ class DashboardScreen extends ConsumerWidget {
                           child: _buildMetricCard(
                             title: 'LOCAL DB SIZE',
                             value: Formatters.formatBytes(state.dbSizeBytes),
-                            subtitle: 'Target: < 30 MB budget',
+                            subtitle: 'Budget: < 30 MB',
                             icon: Icons.storage_rounded,
                             accentColor: neonCyan,
                             surfaceColor: surfaceCardColor,
@@ -140,7 +148,7 @@ class DashboardScreen extends ConsumerWidget {
                           child: _buildMetricCard(
                             title: 'MEMORY NODES',
                             value: state.totalMemoryNodes.toString(),
-                            subtitle: 'Atomic encrypted logs',
+                            subtitle: 'Encrypted atomic logs',
                             icon: Icons.psychology_outlined,
                             accentColor: accentViolet,
                             surfaceColor: surfaceCardColor,
@@ -152,20 +160,35 @@ class DashboardScreen extends ConsumerWidget {
                           child: _buildMetricCard(
                             title: 'DAILY SUMMARIES',
                             value: state.totalDailySummaries.toString(),
-                            subtitle: 'Aggregated & pruned',
+                            subtitle: 'Pruned 30-day archives',
                             icon: Icons.auto_graph_rounded,
-                            accentColor: Colors.amber,
+                            accentColor: amberAlert,
                             surfaceColor: surfaceCardColor,
                             borderColor: borderColor,
                           ),
                         ),
                       ],
                     ),
+                    const SizedBox(height: 12),
+
+                    // Category Breakdown Chips
+                    _buildCategoryBreakdown(state, surfaceCardColor, borderColor),
                     const SizedBox(height: 20),
 
-                    // Action Controls
+                    // Device Sensors & Ingestion Permissions Card
+                    _buildPermissionsCard(
+                      permState: permState,
+                      permController: permController,
+                      surfaceColor: surfaceCardColor,
+                      borderColor: borderColor,
+                      emerald: primaryEmerald,
+                      cyan: neonCyan,
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Ingestion & Action Controls
                     const Text(
-                      'CORE SYSTEM ACTIONS',
+                      'DEVICE INGESTION & PIPELINE CONTROLS',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
@@ -174,6 +197,52 @@ class DashboardScreen extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 10),
+
+                    // Sync Device Data Now Button (Primary Phase 2 Trigger)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: neonCyan,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          elevation: 2,
+                        ),
+                        onPressed: state.isLoading || permState.isSyncing
+                            ? null
+                            : () async {
+                                await controller.syncDeviceData(
+                                  usageService: ref.read(usageIngestionServiceProvider),
+                                  callLogService: ref.read(callLogIngestionServiceProvider),
+                                  notifHandler: ref.read(notificationIngestionHandlerProvider),
+                                );
+                                await permController.checkPermissions();
+                              },
+                        icon: state.isLoading || permState.isSyncing
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.black,
+                                ),
+                              )
+                            : const Icon(Icons.sync_rounded, size: 20),
+                        label: const Text(
+                          'Sync Device Data Now',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
                     Row(
                       children: [
                         Expanded(
@@ -181,41 +250,28 @@ class DashboardScreen extends ConsumerWidget {
                             style: ElevatedButton.styleFrom(
                               backgroundColor: primaryEmerald,
                               foregroundColor: Colors.black,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              elevation: 2,
                             ),
                             onPressed: state.isLoading
                                 ? null
                                 : () => controller.testWriteAndEncrypt(),
-                            icon: state.isLoading
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.black,
-                                    ),
-                                  )
-                                : const Icon(Icons.enhanced_encryption, size: 18),
+                            icon: const Icon(Icons.enhanced_encryption, size: 16),
                             label: const Text(
                               'Test Write & Encrypt',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                             ),
                           ),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 10),
                         Expanded(
                           child: OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: neonCyan,
-                              side: BorderSide(color: neonCyan.withValues(alpha: 0.7)),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              foregroundColor: amberAlert,
+                              side: BorderSide(color: amberAlert.withValues(alpha: 0.7)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10),
                               ),
@@ -223,13 +279,10 @@ class DashboardScreen extends ConsumerWidget {
                             onPressed: state.isLoading
                                 ? null
                                 : () => controller.simulateRetentionAndPrune(),
-                            icon: const Icon(Icons.cleaning_services_rounded, size: 18),
+                            icon: const Icon(Icons.cleaning_services_rounded, size: 16),
                             label: const Text(
                               'Simulate & Prune',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                             ),
                           ),
                         ),
@@ -288,7 +341,7 @@ class DashboardScreen extends ConsumerWidget {
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'All telemetry, notes, and memory nodes are encrypted locally with hardware-backed keys.',
+                  'Passive signals (Screen Time, Calls, Bank Alerts) encrypted on-device via AES-256-GCM.',
                   style: TextStyle(color: Colors.white60, fontSize: 11),
                 ),
               ],
@@ -296,6 +349,185 @@ class DashboardScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildCategoryBreakdown(
+    DashboardState state,
+    Color surfaceColor,
+    Color borderColor,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildCategoryPill('Screen Time', state.screenTimeCount, const Color(0xFF06B6D4)),
+          _buildCategoryPill('Call Logs', state.callLogCount, const Color(0xFF8B5CF6)),
+          _buildCategoryPill('Transactions', state.transactionCount, const Color(0xFF10B981)),
+          _buildCategoryPill('Alerts/Notes', state.noteCount, const Color(0xFFF59E0B)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryPill(String label, int count, Color color) {
+    return Column(
+      children: [
+        Text(
+          count.toString(),
+          style: TextStyle(
+            color: color,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: TextStyle(color: Colors.grey.shade400, fontSize: 10),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPermissionsCard({
+    required DevicePermissionsState permState,
+    required DeviceIngestionController permController,
+    required Color surfaceColor,
+    required Color borderColor,
+    required Color emerald,
+    required Color cyan,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: const [
+                  Icon(Icons.security_update_good_rounded, color: Color(0xFF06B6D4), size: 18),
+                  SizedBox(width: 8),
+                  Text(
+                    'DEVICE SENSORS & PERMISSIONS',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ],
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 18, color: Colors.grey),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () => permController.checkPermissions(),
+                tooltip: 'Refresh permission states',
+              ),
+            ],
+          ),
+          const Divider(color: Color(0xFF1F2937), height: 16),
+
+          // 1. Usage Stats Permission
+          _buildPermissionRow(
+            title: 'Usage Access (Screen Time)',
+            isGranted: permState.usageStatsGranted,
+            onAction: () => permController.openUsageAccessSettings(),
+            actionLabel: 'Settings',
+            emerald: emerald,
+          ),
+          const SizedBox(height: 8),
+
+          // 2. Notification Listener Permission
+          _buildPermissionRow(
+            title: 'Notification Access (Bank Alerts)',
+            isGranted: permState.notificationListenerGranted,
+            onAction: () => permController.openNotificationListenerSettings(),
+            actionLabel: 'Settings',
+            emerald: emerald,
+          ),
+          const SizedBox(height: 8),
+
+          // 3. Call Log Permission
+          _buildPermissionRow(
+            title: 'Call Logs (Telephony Stream)',
+            isGranted: permState.callLogGranted,
+            onAction: () => permController.requestCallLogPermission(),
+            actionLabel: 'Grant',
+            emerald: emerald,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPermissionRow({
+    required String title,
+    required bool isGranted,
+    required VoidCallback onAction,
+    required String actionLabel,
+    required Color emerald,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: isGranted ? emerald : Colors.redAccent,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
+          ],
+        ),
+        if (isGranted)
+          Row(
+            children: [
+              Icon(Icons.check_circle, color: emerald, size: 14),
+              const SizedBox(width: 4),
+              Text(
+                'Active',
+                style: TextStyle(color: emerald, fontSize: 11, fontWeight: FontWeight.w600),
+              ),
+            ],
+          )
+        else
+          TextButton(
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              backgroundColor: const Color(0xFF1E293B),
+              foregroundColor: const Color(0xFF38BDF8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+            ),
+            onPressed: onAction,
+            child: Text(actionLabel, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+          ),
+      ],
     );
   }
 
@@ -486,7 +718,7 @@ class DashboardScreen extends ConsumerWidget {
                   Icon(Icons.terminal, color: Colors.greenAccent, size: 16),
                   SizedBox(width: 8),
                   Text(
-                    'SECURITY & STORAGE AUDIT LOG',
+                    'SECURITY & SENSOR AUDIT LOG',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,

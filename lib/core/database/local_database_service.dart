@@ -176,6 +176,17 @@ class LocalDatabaseService {
     return _memoryBox!.count();
   }
 
+  /// Returns count of stored [MemoryNode] entries matching a specific category.
+  int getCategoryCount(String category) {
+    _ensureInitialized();
+    final query = _memoryBox!.query(MemoryNode_.category.equals(category)).build();
+    try {
+      return query.count();
+    } finally {
+      query.close();
+    }
+  }
+
   /// Returns total count of stored [DailySummary] entries.
   int getDailySummaryCount() {
     _ensureInitialized();

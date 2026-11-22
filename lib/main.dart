@@ -2,9 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:matrix_ai_os/core/constants/app_constants.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/screens/dashboard_screen.dart';
+import 'package:matrix_ai_os/features/device_ingestion/background/background_sync_worker.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize periodic lightweight background sync (battery-not-low constraint)
+  await BackgroundSyncWorker.initialize();
+  await BackgroundSyncWorker.schedulePeriodicSync();
+
   runApp(
     const ProviderScope(
       child: MatrixAiOsApp(),
