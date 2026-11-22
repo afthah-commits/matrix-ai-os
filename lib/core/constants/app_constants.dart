@@ -3,7 +3,7 @@ class AppConstants {
   AppConstants._();
 
   static const String appName = 'Matrix AI OS';
-  static const String appVersion = '2.1.1';
+  static const String appVersion = '2.2.0';
 
   // Security & Keystore
   static const String secureStorageKeyName = 'matrix_ai_master_encryption_key_v1';

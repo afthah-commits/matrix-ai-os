@@ -96,8 +96,11 @@ class DashboardController extends StateNotifier<DashboardState> {
         _prunerService = prunerService,
         super(const DashboardState());
 
-  /// Initializes database and verifies Keystore encryption key.
-  Future<void> initialize() async {
+  /// Initializes database and loads cached O(1) counts after a 1-second post-frame delay.
+  Future<void> initialize({bool defer = true}) async {
+    if (defer) {
+      await Future.delayed(const Duration(milliseconds: 1000));
+    }
     state = state.copyWith(errorMessage: null);
     try {
       if (!_dbService.isInitialized) {

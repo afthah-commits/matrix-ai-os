@@ -31,6 +31,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setBackgroundDrawableResource(android.R.color.black)
         handleAssistantOrWakeWordIntent(intent)
     }
 

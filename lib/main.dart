@@ -9,18 +9,22 @@ import 'package:matrix_ai_os/features/assistant_ui/presentation/screens/main_she
 import 'package:matrix_ai_os/features/assistant_ui/presentation/services/wake_word_bridge_service.dart';
 import 'package:matrix_ai_os/features/device_ingestion/background/background_sync_worker.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Render the Flutter UI IMMEDIATELY (<500ms budget) so the app NEVER hangs on splash/loading
+  // Render the Flutter UI IMMEDIATELY (<150ms budget) so the app NEVER hangs on splash/loading
   runApp(
     const ProviderScope(
       child: MatrixAiOsApp(),
     ),
   );
 
-  // Non-blocking initialization of heavy services with timeouts inside try-catch
-  unawaited(_initializeCoreEngines());
+  // Defer ALL background engine initializations until 800ms AFTER the first frame renders
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    Future.delayed(const Duration(milliseconds: 800), () {
+      _initializeCoreEngines();
+    });
+  });
 }
 
 Future<void> _initializeCoreEngines() async {

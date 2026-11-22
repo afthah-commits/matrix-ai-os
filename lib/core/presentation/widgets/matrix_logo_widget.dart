@@ -35,39 +35,41 @@ class MatrixLogoWidget extends StatelessWidget {
     );
 
     if (!withBackground) {
-      return emblem;
+      return RepaintBoundary(child: emblem);
     }
 
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: deepObsidian,
-        borderRadius: widgetRadius,
-        border: Border.all(
-          color: primaryEmerald.withValues(alpha: 0.35),
-          width: 1.2,
+    return RepaintBoundary(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: deepObsidian,
+          borderRadius: widgetRadius,
+          border: Border.all(
+            color: primaryEmerald.withValues(alpha: 0.35),
+            width: 1.2,
+          ),
+          boxShadow: withGlow
+              ? [
+                  BoxShadow(
+                    color: primaryEmerald.withValues(alpha: 0.22),
+                    blurRadius: size * 0.35,
+                    spreadRadius: 1,
+                    offset: const Offset(0, 1),
+                  ),
+                  BoxShadow(
+                    color: neonCyan.withValues(alpha: 0.15),
+                    blurRadius: size * 0.2,
+                    spreadRadius: 0,
+                    offset: const Offset(0, 0),
+                  ),
+                ]
+              : null,
         ),
-        boxShadow: withGlow
-            ? [
-                BoxShadow(
-                  color: primaryEmerald.withValues(alpha: 0.22),
-                  blurRadius: size * 0.35,
-                  spreadRadius: 1,
-                  offset: const Offset(0, 1),
-                ),
-                BoxShadow(
-                  color: neonCyan.withValues(alpha: 0.15),
-                  blurRadius: size * 0.2,
-                  spreadRadius: 0,
-                  offset: const Offset(0, 0),
-                ),
-              ]
-            : null,
-      ),
-      padding: EdgeInsets.all(size * 0.12),
-      child: CustomPaint(
-        painter: _MatrixLogoPainter(),
+        padding: EdgeInsets.all(size * 0.12),
+        child: CustomPaint(
+          painter: _MatrixLogoPainter(),
+        ),
       ),
     );
   }
