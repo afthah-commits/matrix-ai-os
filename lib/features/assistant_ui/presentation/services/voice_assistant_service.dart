@@ -16,12 +16,36 @@ class VoiceAssistantService extends ChangeNotifier {
   String _lastRecognizedWords = '';
   String? _errorMessage;
 
+  String _languageCode = 'en';
+  String _localeId = 'en_US';
+  String _ttsLanguage = 'en-US';
+
   bool get isListening => _isListening;
   bool get isSpeaking => _isSpeaking;
   bool get isTtsEnabled => _isTtsEnabled;
   String get lastRecognizedWords => _lastRecognizedWords;
   bool get isInitialized => _isSpeechInitialized;
   String? get errorMessage => _errorMessage;
+  String get languageCode => _languageCode;
+  String get localeId => _localeId;
+
+  /// Changes the assistant voice and listening language ('en' or 'ml').
+  Future<void> setLanguage(String code) async {
+    _languageCode = code;
+    if (code == 'ml') {
+      _localeId = 'ml_IN';
+      _ttsLanguage = 'ml-IN';
+    } else {
+      _localeId = 'en_US';
+      _ttsLanguage = 'en-US';
+    }
+    try {
+      await _flutterTts.setLanguage(_ttsLanguage);
+    } catch (e) {
+      debugPrint('[VoiceAssistantService] TTS setLanguage error: $e');
+    }
+    notifyListeners();
+  }
 
   void clearError() {
     _errorMessage = null;
@@ -143,6 +167,7 @@ class VoiceAssistantService extends ChangeNotifier {
         listenOptions: SpeechListenOptions(
           listenFor: const Duration(seconds: 15),
           pauseFor: const Duration(seconds: 3),
+          localeId: _localeId,
         ),
       );
     } catch (e) {

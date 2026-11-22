@@ -47,6 +47,18 @@ class IntentRouterService {
     'did i pay',
     'who did i',
     'how much did i',
+    // Malayalam personal memory keywords
+    'പാസ്പോർട്ട്',
+    'ടിക്കറ്റ്',
+    'ചെലവ്',
+    'പണം',
+    'കോൾ',
+    'വിളികൾ',
+    'സ്ക്രീൻ സമയം',
+    'ബാങ്ക്',
+    'ബിൽ',
+    'രേഖകൾ',
+    'ഡോക്യുമെന്റുകൾ',
   ];
 
   // External / Web indicators
@@ -71,6 +83,11 @@ class IntentRouterService {
     'reviews',
     'customer support',
     'headquarters',
+    // Malayalam external/web keywords
+    'കാലാവസ്ഥ',
+    'വാർത്തകൾ',
+    'സ്കോർ',
+    'വില',
   ];
 
   /// Classifies a query into [UserIntent.personalMemory], [UserIntent.liveWebWorld], or [UserIntent.hybrid].
@@ -82,7 +99,10 @@ class IntentRouterService {
 
     final hasPersonalEntity = _personalEntities.any((e) => lower.contains(e));
     final hasPersonalPronoun =
-        RegExp(r'\b(my|me|i|i\x27m|i\x27ve)\b').hasMatch(lower);
+        RegExp(r'\b(my|me|i|i\x27m|i\x27ve)\b').hasMatch(lower) ||
+        lower.contains('എന്റെ') ||
+        lower.contains('എനിക്ക്') ||
+        lower.contains('ഞാൻ');
     final hasExternalAction = _externalActions.any((a) => lower.contains(a));
 
     // 1. Hybrid detection: Personal entity/pronoun combined with an external web action

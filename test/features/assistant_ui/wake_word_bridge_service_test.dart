@@ -64,6 +64,12 @@ void main() {
           return true;
         case 'onFlutterVoiceStopped':
           return true;
+        case 'isOverlayPermissionGranted':
+          return true;
+        case 'openOverlayPermissionSettings':
+          return true;
+        case 'setLanguage':
+          return true;
         default:
           return null;
       }
@@ -141,6 +147,34 @@ void main() {
       );
       expect(
         methodCalls.any((call) => call.method == 'onFlutterVoiceStopped'),
+        isTrue,
+      );
+    });
+
+    test('isOverlayPermissionGranted queries native channel', () async {
+      final granted = await service.isOverlayPermissionGranted();
+      expect(granted, isTrue);
+      expect(
+        methodCalls.any((call) => call.method == 'isOverlayPermissionGranted'),
+        isTrue,
+      );
+    });
+
+    test('openOverlayPermissionSettings calls native intent', () async {
+      final opened = await service.openOverlayPermissionSettings();
+      expect(opened, isTrue);
+      expect(
+        methodCalls.any((call) => call.method == 'openOverlayPermissionSettings'),
+        isTrue,
+      );
+    });
+
+    test('setLanguage passes code to native channel', () async {
+      await service.setLanguage('ml');
+      expect(
+        methodCalls.any(
+          (call) => call.method == 'setLanguage' && call.arguments['language'] == 'ml',
+        ),
         isTrue,
       );
     });

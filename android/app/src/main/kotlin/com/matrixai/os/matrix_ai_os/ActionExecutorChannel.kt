@@ -14,6 +14,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.ParcelFileDescriptor
+import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
@@ -79,7 +80,8 @@ class ActionExecutorChannel(
                 "composeWhatsAppMessage" -> {
                     val phoneNumber = call.argument<String>("phoneNumber") ?: ""
                     val message = call.argument<String>("message") ?: ""
-                    val success = composeWhatsAppMessage(phoneNumber, message)
+                    val autoSend = call.argument<Boolean>("autoSend") ?: true
+                    val success = composeWhatsAppMessage(context, phoneNumber, message, autoSend)
                     result.success(success)
                 }
 
@@ -229,147 +231,11 @@ class ActionExecutorChannel(
         return appList
     }
 
-    /**
-     * Finds the best matching installed app (case-insensitive exact, prefix, contains, or alias)
-     * and launches it immediately.
-     */
-    private fun launchAppByName(query: String): Map<String, Any> {
-        val cleanQuery = query.trim().lowercase()
-        if (cleanQuery.isEmpty()) {
-            return mapOf("success" to false, "error" to "Query is empty")
-        }
-
-        val apps = getInstalledApps()
-
-        // 1. Exact match by App Name
-        var matched = apps.firstOrNull { it["appName"]?.lowercase() == cleanQuery }
-
-        // 2. Starts with query (e.g. "Whats" -> "WhatsApp")
-        if (matched == null) {
-            matched = apps.firstOrNull { it["appName"]?.lowercase()?.startsWith(cleanQuery) == true }
-        }
-
-        // 3. Contains query (e.g. "tube" -> "YouTube")
-        if (matched == null) {
-            matched = apps.firstOrNull { it["appName"]?.lowercase()?.contains(cleanQuery) == true }
-        }
-
-        // 4. Exact or partial match on package name
-        if (matched == null) {
-            matched = apps.firstOrNull { it["packageName"]?.lowercase() == cleanQuery }
-        }
-        if (matched == null) {
-            matched = apps.firstOrNull { it["packageName"]?.lowercase()?.contains(cleanQuery) == true }
-        }
-
-        // 5. Semantic keyword aliases for standard OEM/Android apps (Nothing OS, Pixel, Samsung, etc.)
-        if (matched == null) {
-            when (cleanQuery) {
-                "camera" -> {
-                    matched = apps.firstOrNull {
-                        val name = it["appName"]?.lowercase() ?: ""
-                        val pkg = it["packageName"]?.lowercase() ?: ""
-                        name.contains("camera") || pkg.contains("camera")
-                    }
-                }
-                "settings" -> {
-                    matched = apps.firstOrNull {
-                        val pkg = it["packageName"]?.lowercase() ?: ""
-                        pkg == "com.android.settings" || it["appName"]?.lowercase() == "settings"
-                    }
-                }
-                "gallery", "photos" -> {
-                    matched = apps.firstOrNull {
-                        val name = it["appName"]?.lowercase() ?: ""
-                        val pkg = it["packageName"]?.lowercase() ?: ""
-                        name.contains("gallery") || name.contains("photos") || pkg.contains("gallery") || pkg.contains("photos")
-                    }
-                }
-                "browser", "internet", "chrome" -> {
-                    matched = apps.firstOrNull {
-                        val name = it["appName"]?.lowercase() ?: ""
-                        val pkg = it["packageName"]?.lowercase() ?: ""
-                        name.contains("chrome") || pkg.contains("chrome") || name.contains("browser")
-                    }
-                }
-                "calculator" -> {
-                    matched = apps.firstOrNull {
-                        val name = it["appName"]?.lowercase() ?: ""
-                        val pkg = it["packageName"]?.lowercase() ?: ""
-                        name.contains("calculator") || pkg.contains("calculator")
-                    }
-                }
-                "clock", "alarm" -> {
-                    matched = apps.firstOrNull {
-                        val name = it["appName"]?.lowercase() ?: ""
-                        val pkg = it["packageName"]?.lowercase() ?: ""
-                        name.contains("clock") || pkg.contains("deskclock")
-                    }
-                }
-                "files", "file manager" -> {
-                    matched = apps.firstOrNull {
-                        val name = it["appName"]?.lowercase() ?: ""
-                        val pkg = it["packageName"]?.lowercase() ?: ""
-                        name.contains("files") || pkg.contains("documentsui") || pkg.contains("filemanager")
-                    }
-                }
-            }
-        }
-
-        if (matched != null) {
-            val pkg = matched["packageName"] ?: ""
-            val name = matched["appName"] ?: pkg
-            val launched = launchApp(pkg)
-            return if (launched) {
-                mapOf("success" to true, "appName" to name, "packageName" to pkg)
-            } else {
-                mapOf("success" to false, "error" to "Failed to start activity for $pkg", "appName" to name, "packageName" to pkg)
-            }
-        }
-
-        return mapOf(
-            "success" to false,
-            "error" to "No installed app found matching '$query'",
-            "query" to query
-        )
-    }
-
-    private fun launchApp(packageName: String): Boolean {
-        val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
-        return if (launchIntent != null) {
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(launchIntent)
-            true
-        } else {
-            Log.w(TAG, "App with package '$packageName' not found on device")
-            false
-        }
-    }
-
-    private fun dialNumber(phoneNumber: String): Boolean {
-        val intent = Intent(Intent.ACTION_DIAL).apply {
-            data = Uri.parse("tel:${Uri.encode(phoneNumber.trim())}")
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        context.startActivity(intent)
-        return true
-    }
-
-    private fun composeWhatsAppMessage(phoneNumber: String, message: String): Boolean {
-        // Strip non-digits except leading +
-        val digitsOnly = phoneNumber.replace(Regex("[^0-9]"), "")
-        val uri = if (digitsOnly.isNotEmpty()) {
-            Uri.parse("https://wa.me/$digitsOnly?text=${Uri.encode(message)}")
-        } else {
-            Uri.parse("https://wa.me/?text=${Uri.encode(message)}")
-        }
-
-        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        context.startActivity(intent)
-        return true
-    }
+    private fun launchAppByName(query: String): Map<String, Any> = launchAppByName(context, query)
+    private fun launchApp(packageName: String): Boolean = launchApp(context, packageName)
+    private fun dialNumber(phoneNumber: String): Boolean = dialNumber(context, phoneNumber)
+    private fun composeWhatsAppMessage(phoneNumber: String, message: String, autoSend: Boolean = true): Boolean =
+        composeWhatsAppMessage(context, phoneNumber, message, autoSend)
 
     private fun getCurrentScreenContext(): Map<String, Any> {
         val serviceRunning = MatrixAccessibilityService.isServiceRunning()
@@ -703,5 +569,248 @@ class ActionExecutorChannel(
     companion object {
         const val CHANNEL_NAME = "com.matrixai.os/action_executor"
         private const val TAG = "ActionExecutorChannel"
+
+        fun resolveContactNumberByName(context: Context, name: String): String? {
+            val cleanName = name.trim().lowercase()
+            val candidates = mutableListOf(cleanName)
+            for (sfx in listOf("ിനെ", "ിന്", "യ്ക്ക്", "ക്ക്", "നെ", "യെ", "റെ", "ന്")) {
+                if (cleanName.endsWith(sfx) && cleanName.length > sfx.length + 1) {
+                    val root = cleanName.removeSuffix(sfx)
+                    candidates.add(root)
+                    if (root.endsWith("ല")) candidates.add(root.dropLast(1) + "ൽ")
+                    if (root.endsWith("ര")) candidates.add(root.dropLast(1) + "ർ")
+                    if (root.endsWith("ന")) candidates.add(root.dropLast(1) + "ൻ")
+                }
+            }
+
+            try {
+                for (cand in candidates) {
+                    val cursor = context.contentResolver.query(
+                        ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                        arrayOf(
+                            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                            ContactsContract.CommonDataKinds.Phone.NUMBER
+                        ),
+                        "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?",
+                        arrayOf("%$cand%"),
+                        null
+                    )
+                    cursor?.use {
+                        if (it.moveToFirst()) {
+                            val numIdx = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                            if (numIdx >= 0) {
+                                val rawNumber = it.getString(numIdx)
+                                return rawNumber.replace(Regex("[^0-9+]"), "")
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "resolveContactNumberByName error: ${e.message}")
+            }
+            return null
+        }
+
+        fun dialNumber(context: Context, phoneNumber: String): Boolean {
+            var target = phoneNumber.trim()
+            if (target.any { it.isLetter() }) {
+                val resolved = resolveContactNumberByName(context, target)
+                if (resolved != null) {
+                    target = resolved
+                }
+            }
+            val intent = Intent(Intent.ACTION_DIAL).apply {
+                data = Uri.parse("tel:${Uri.encode(target)}")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            return true
+        }
+
+        fun composeWhatsAppMessage(
+            context: Context,
+            phoneNumber: String,
+            message: String,
+            autoSend: Boolean = true
+        ): Boolean {
+            var target = phoneNumber.trim()
+            if (target.any { it.isLetter() }) {
+                val resolved = resolveContactNumberByName(context, target)
+                if (resolved != null) {
+                    target = resolved
+                }
+            }
+            val digitsOnly = target.replace(Regex("[^0-9]"), "")
+            val uri = if (digitsOnly.isNotEmpty()) {
+                Uri.parse("https://wa.me/$digitsOnly?text=${Uri.encode(message)}")
+            } else {
+                Uri.parse("https://wa.me/?text=${Uri.encode(message)}")
+            }
+
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                setPackage("com.whatsapp")
+            }
+            try {
+                context.startActivity(intent)
+            } catch (_: Exception) {
+                val fallback = Intent(Intent.ACTION_VIEW, uri).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(fallback)
+            }
+
+            if (autoSend && MatrixAccessibilityService.isServiceRunning()) {
+                MatrixAccessibilityService.autoSendWhatsAppMessage(retryAttempts = 4, retryDelayMs = 700L)
+            }
+            return true
+        }
+
+        fun launchApp(context: Context, packageName: String): Boolean {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+            return if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(launchIntent)
+                true
+            } else {
+                Log.w(TAG, "App with package '$packageName' not found on device")
+                false
+            }
+        }
+
+        fun getInstalledApps(context: Context): List<Map<String, String>> {
+            val packageManager = context.packageManager
+            val intent = Intent(Intent.ACTION_MAIN, null).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            }
+            val resolveInfoList: List<ResolveInfo> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.queryIntentActivities(intent, 0)
+            }
+
+            val appList = ArrayList<Map<String, String>>(resolveInfoList.size)
+            for (resolveInfo in resolveInfoList) {
+                val appName = resolveInfo.loadLabel(packageManager).toString().trim()
+                val packageName = resolveInfo.activityInfo.packageName
+                appList.add(mapOf("appName" to appName, "packageName" to packageName))
+            }
+            return appList
+        }
+
+        fun launchAppByName(context: Context, query: String): Map<String, Any> {
+            val cleanQuery = query.trim().lowercase()
+            if (cleanQuery.isEmpty()) {
+                return mapOf("success" to false, "error" to "Query is empty")
+            }
+
+            val apps = getInstalledApps(context)
+
+            // 1. Exact match by App Name
+            var matched = apps.firstOrNull { it["appName"]?.lowercase() == cleanQuery }
+
+            // 2. Starts with query (e.g. "Whats" -> "WhatsApp")
+            if (matched == null) {
+                matched = apps.firstOrNull { it["appName"]?.lowercase()?.startsWith(cleanQuery) == true }
+            }
+
+            // 3. Contains query (e.g. "tube" -> "YouTube")
+            if (matched == null) {
+                matched = apps.firstOrNull { it["appName"]?.lowercase()?.contains(cleanQuery) == true }
+            }
+
+            // 4. Exact or partial match on package name
+            if (matched == null) {
+                matched = apps.firstOrNull { it["packageName"]?.lowercase() == cleanQuery }
+            }
+            if (matched == null) {
+                matched = apps.firstOrNull { it["packageName"]?.lowercase()?.contains(cleanQuery) == true }
+            }
+
+            // 5. Semantic keyword & Malayalam aliases for standard OEM/Android apps
+            if (matched == null) {
+                when (cleanQuery) {
+                    "camera", "ക്യാമറ" -> {
+                        matched = apps.firstOrNull {
+                            val name = it["appName"]?.lowercase() ?: ""
+                            val pkg = it["packageName"]?.lowercase() ?: ""
+                            name.contains("camera") || pkg.contains("camera")
+                        }
+                    }
+                    "settings", "സെറ്റിംഗ്സ്" -> {
+                        matched = apps.firstOrNull {
+                            val pkg = it["packageName"]?.lowercase() ?: ""
+                            pkg == "com.android.settings" || it["appName"]?.lowercase() == "settings"
+                        }
+                    }
+                    "gallery", "photos", "ഗാലറി" -> {
+                        matched = apps.firstOrNull {
+                            val name = it["appName"]?.lowercase() ?: ""
+                            val pkg = it["packageName"]?.lowercase() ?: ""
+                            name.contains("gallery") || name.contains("photos") || pkg.contains("gallery") || pkg.contains("photos")
+                        }
+                    }
+                    "browser", "internet", "chrome", "ക്രോം" -> {
+                        matched = apps.firstOrNull {
+                            val name = it["appName"]?.lowercase() ?: ""
+                            val pkg = it["packageName"]?.lowercase() ?: ""
+                            name.contains("chrome") || pkg.contains("chrome") || name.contains("browser")
+                        }
+                    }
+                    "youtube", "യൂട്യൂബ്" -> {
+                        matched = apps.firstOrNull {
+                            val name = it["appName"]?.lowercase() ?: ""
+                            val pkg = it["packageName"]?.lowercase() ?: ""
+                            name.contains("youtube") || pkg.contains("youtube")
+                        }
+                    }
+                    "whatsapp", "വാട്സാപ്പ്", "വാട്സാപ്" -> {
+                        matched = apps.firstOrNull {
+                            val pkg = it["packageName"]?.lowercase() ?: ""
+                            pkg.contains("whatsapp")
+                        }
+                    }
+                    "calculator" -> {
+                        matched = apps.firstOrNull {
+                            val name = it["appName"]?.lowercase() ?: ""
+                            val pkg = it["packageName"]?.lowercase() ?: ""
+                            name.contains("calculator") || pkg.contains("calculator")
+                        }
+                    }
+                    "clock", "alarm" -> {
+                        matched = apps.firstOrNull {
+                            val name = it["appName"]?.lowercase() ?: ""
+                            val pkg = it["packageName"]?.lowercase() ?: ""
+                            name.contains("clock") || pkg.contains("deskclock")
+                        }
+                    }
+                    "files", "file manager" -> {
+                        matched = apps.firstOrNull {
+                            val name = it["appName"]?.lowercase() ?: ""
+                            val pkg = it["packageName"]?.lowercase() ?: ""
+                            name.contains("files") || pkg.contains("documentsui") || pkg.contains("filemanager")
+                        }
+                    }
+                }
+            }
+
+            if (matched != null) {
+                val pkg = matched["packageName"] ?: ""
+                val name = matched["appName"] ?: pkg
+                val launched = launchApp(context, pkg)
+                return if (launched) {
+                    mapOf("success" to true, "appName" to name, "packageName" to pkg)
+                } else {
+                    mapOf("success" to false, "error" to "Failed to start activity for $pkg", "appName" to name, "packageName" to pkg)
+                }
+            }
+
+            return mapOf(
+                "success" to false,
+                "error" to "No installed app found matching '$query'",
+                "query" to query
+            )
+        }
     }
 }

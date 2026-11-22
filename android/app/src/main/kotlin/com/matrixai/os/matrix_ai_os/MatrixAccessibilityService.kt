@@ -6,6 +6,8 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -495,6 +497,84 @@ class MatrixAccessibilityService : AccessibilityService() {
          */
         fun executeGlobalAction(action: Int): Boolean {
             return instance?.performGlobalAction(action) ?: false
+        }
+
+        /**
+         * Automatically locates and clicks WhatsApp's "Send" button after opening
+         * a prefilled chat. Retries over multiple attempts to wait for WhatsApp's activity animation.
+         */
+        fun autoSendWhatsAppMessage(
+            retryAttempts: Int = 4,
+            retryDelayMs: Long = 700L,
+            callback: ((Boolean) -> Unit)? = null
+        ) {
+            val handler = Handler(Looper.getMainLooper())
+            var currentAttempt = 0
+
+            val clickRunnable = object : Runnable {
+                override fun run() {
+                    currentAttempt++
+                    val service = instance
+                    if (service == null) {
+                        callback?.invoke(false)
+                        return
+                    }
+
+                    val root = service.rootInActiveWindow
+                    var clicked = false
+
+                    if (root != null) {
+                        // 1. Search by WhatsApp's official view ID (com.whatsapp:id/send)
+                        val sendById = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send")
+                        if (!sendById.isNullOrEmpty()) {
+                            for (node in sendById) {
+                                var target: AccessibilityNodeInfo? = node
+                                while (target != null && !target.isClickable) {
+                                    target = target.parent
+                                }
+                                if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                                    clicked = true
+                                    Log.i(TAG, "WhatsApp Send button clicked via view ID!")
+                                    break
+                                }
+                            }
+                        }
+
+                        // 2. Fallback search by text or contentDescription "Send"
+                        if (!clicked) {
+                            val sendByText = root.findAccessibilityNodeInfosByText("Send")
+                            if (!sendByText.isNullOrEmpty()) {
+                                for (node in sendByText) {
+                                    val desc = node.contentDescription?.toString() ?: ""
+                                    val text = node.text?.toString() ?: ""
+                                    if (desc.equals("Send", ignoreCase = true) || text.equals("Send", ignoreCase = true)) {
+                                        var target: AccessibilityNodeInfo? = node
+                                        while (target != null && !target.isClickable) {
+                                            target = target.parent
+                                        }
+                                        if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                                            clicked = true
+                                            Log.i(TAG, "WhatsApp Send button clicked via text/contentDescription!")
+                                            break
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (clicked) {
+                        callback?.invoke(true)
+                    } else if (currentAttempt < retryAttempts) {
+                        handler.postDelayed(this, retryDelayMs)
+                    } else {
+                        Log.w(TAG, "autoSendWhatsAppMessage: Send button not found after $retryAttempts attempts")
+                        callback?.invoke(false)
+                    }
+                }
+            }
+
+            handler.postDelayed(clickRunnable, retryDelayMs)
         }
     }
 }

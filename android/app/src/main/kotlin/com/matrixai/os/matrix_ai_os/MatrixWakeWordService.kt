@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -19,6 +20,7 @@ import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -28,10 +30,14 @@ import androidx.core.content.ContextCompat
 import java.util.Locale
 
 /**
- * Lightweight, battery-aware foreground service that continuously listens
- * for the "Hey Matrix" wake phrase using Android's native SpeechRecognizer.
+ * Lightweight, silent, battery-aware foreground service that continuously listens
+ * for "Hey Matrix" / "മാട്രിക്സ്" wake phrases using Android's native SpeechRecognizer.
  *
- * Runs with zero bundled neural models to keep APK size strictly minimal.
+ * Mutes system/notification audio streams right before startListening to eliminate
+ * any annoying system beeps during continuous background restarts.
+ *
+ * When triggered, launches a sleek Siri-style floating pop-up overlay (MatrixOverlayService)
+ * over the current screen without redirecting away from the active app.
  */
 class MatrixWakeWordService : Service() {
 
@@ -40,14 +46,18 @@ class MatrixWakeWordService : Service() {
     private var backoffDelayMs: Long = BASE_DELAY_MS
     private var lastTriggerTimestamp: Long = 0L
 
+    private var audioManager: AudioManager? = null
+    private var isMutedForRecognition: Boolean = false
+
     override fun onCreate() {
         super.onCreate()
         serviceInstance = this
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         createNotificationChannel()
         startForegroundWithMicrophone()
         isRunning = true
         isPaused = false
-        Log.i(TAG, "MatrixWakeWordService started")
+        Log.i(TAG, "MatrixWakeWordService started (Silent Background Mode)")
         mainHandler.post { initAndStartListening() }
     }
 
@@ -55,6 +65,7 @@ class MatrixWakeWordService : Service() {
         when (intent?.action) {
             ACTION_STOP -> {
                 Log.i(TAG, "Stopping MatrixWakeWordService by request")
+                restoreAudioStreams()
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -67,6 +78,9 @@ class MatrixWakeWordService : Service() {
                 resumeListening()
             }
             else -> {
+                intent?.getStringExtra(EXTRA_LANGUAGE)?.let {
+                    currentLanguage = it
+                }
                 if (!isPaused && isRunning) {
                     mainHandler.post { safeStartListening() }
                 }
@@ -81,6 +95,7 @@ class MatrixWakeWordService : Service() {
         isRunning = false
         isPaused = false
         serviceInstance = null
+        restoreAudioStreams()
         mainHandler.removeCallbacksAndMessages(null)
         destroySpeechRecognizer()
         Log.i(TAG, "MatrixWakeWordService destroyed")
@@ -94,7 +109,7 @@ class MatrixWakeWordService : Service() {
                 "Matrix Voice Assistant",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Hands-free wake-word detection for Matrix AI"
+                description = "Silent hands-free wake-word detection for Matrix AI"
                 setShowBadge(false)
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -157,17 +172,22 @@ class MatrixWakeWordService : Service() {
         try {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
                 setRecognitionListener(object : RecognitionListener {
-                    override fun onReadyForSpeech(params: Bundle?) {}
+                    override fun onReadyForSpeech(params: Bundle?) {
+                        // Unmute audio streams 100ms after recognition starts so no initial beep is heard
+                        mainHandler.postDelayed({ restoreAudioStreams() }, 100L)
+                    }
                     override fun onBeginningOfSpeech() {}
                     override fun onRmsChanged(rmsdB: Float) {}
                     override fun onBufferReceived(buffer: ByteArray?) {}
                     override fun onEndOfSpeech() {}
 
                     override fun onError(error: Int) {
+                        restoreAudioStreams()
                         handleSpeechError(error)
                     }
 
                     override fun onResults(results: Bundle?) {
+                        restoreAudioStreams()
                         handleSpeechResults(results)
                     }
 
@@ -180,19 +200,84 @@ class MatrixWakeWordService : Service() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to instantiate SpeechRecognizer: ${e.message}")
+            restoreAudioStreams()
             scheduleRestart(MAX_BACKOFF_MS)
+        }
+    }
+
+    /**
+     * Mutes notification, system, and music streams temporarily to suppress Android's
+     * native SpeechRecognizer start/restart beep tones.
+     */
+    private fun muteAudioStreams() {
+        try {
+            audioManager?.let { am ->
+                if (!isMutedForRecognition) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        try {
+                            am.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0)
+                            am.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_MUTE, 0)
+                            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
+                        } catch (_: SecurityException) {}
+                    } else {
+                        @Suppress("DEPRECATION")
+                        am.setStreamMute(AudioManager.STREAM_SYSTEM, true)
+                        @Suppress("DEPRECATION")
+                        am.setStreamMute(AudioManager.STREAM_NOTIFICATION, true)
+                        @Suppress("DEPRECATION")
+                        am.setStreamMute(AudioManager.STREAM_MUSIC, true)
+                    }
+                    isMutedForRecognition = true
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "muteAudioStreams error: ${e.message}")
+        }
+    }
+
+    /**
+     * Restores audio streams to unmuted state.
+     */
+    private fun restoreAudioStreams() {
+        try {
+            audioManager?.let { am ->
+                if (isMutedForRecognition) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        try {
+                            am.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0)
+                            am.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_UNMUTE, 0)
+                            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
+                        } catch (_: SecurityException) {}
+                    } else {
+                        @Suppress("DEPRECATION")
+                        am.setStreamMute(AudioManager.STREAM_SYSTEM, false)
+                        @Suppress("DEPRECATION")
+                        am.setStreamMute(AudioManager.STREAM_NOTIFICATION, false)
+                        @Suppress("DEPRECATION")
+                        am.setStreamMute(AudioManager.STREAM_MUSIC, false)
+                    }
+                    isMutedForRecognition = false
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "restoreAudioStreams error: ${e.message}")
         }
     }
 
     private fun safeStartListening() {
         if (!isRunning || isPaused) return
         try {
+            // Silence beep sounds before SpeechRecognizer kicks in
+            muteAudioStreams()
+
+            val localeTag = if (currentLanguage == "ml") "ml-IN" else Locale.getDefault().toLanguageTag()
+
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(
                     RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
                 )
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
                 putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
@@ -200,6 +285,7 @@ class MatrixWakeWordService : Service() {
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
             Log.w(TAG, "safeStartListening failed: ${e.message}")
+            restoreAudioStreams()
             scheduleRestart(2000L)
         }
     }
@@ -233,7 +319,7 @@ class MatrixWakeWordService : Service() {
 
         if (!detected && isRunning && !isPaused) {
             backoffDelayMs = BASE_DELAY_MS
-            scheduleRestart(100L)
+            scheduleRestart(BASE_DELAY_MS)
         }
     }
 
@@ -243,7 +329,7 @@ class MatrixWakeWordService : Service() {
             SpeechRecognizer.ERROR_NO_MATCH,
             SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
                 backoffDelayMs = BASE_DELAY_MS
-                scheduleRestart(150L)
+                scheduleRestart(BASE_DELAY_MS)
             }
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
             SpeechRecognizer.ERROR_AUDIO,
@@ -261,7 +347,7 @@ class MatrixWakeWordService : Service() {
                 stopSelf()
             }
             else -> {
-                scheduleRestart(1000L)
+                scheduleRestart(1200L)
             }
         }
     }
@@ -274,17 +360,28 @@ class MatrixWakeWordService : Service() {
         lastTriggerTimestamp = now
         Log.i(TAG, "Wake-word triggered! Initial query: $query")
 
-        // Yield microphone to the foreground activity
+        // Yield microphone to the foreground voice session
         pauseListening()
 
         // Haptic pulse
         triggerVibration()
 
-        // Wake screen if currently sleeping
+        // Wake screen if sleeping
         wakeScreenDisplay()
 
-        // Bring app to the foreground
-        launchMainActivity(query)
+        // Check if Overlay permission (SYSTEM_ALERT_WINDOW) is granted
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
+            // Launch Siri-style floating pop-up overlay over current screen!
+            val overlayIntent = Intent(this, MatrixOverlayService::class.java).apply {
+                putExtra(EXTRA_INITIAL_QUERY, query)
+                putExtra(EXTRA_TRIGGER_TYPE, "wake_word")
+                putExtra(EXTRA_LANGUAGE, currentLanguage)
+            }
+            startService(overlayIntent)
+        } else {
+            // Fallback to full MainActivity if overlay permission not granted
+            launchMainActivity(query)
+        }
     }
 
     private fun triggerVibration() {
@@ -360,6 +457,7 @@ class MatrixWakeWordService : Service() {
 
     fun pauseListening() {
         isPaused = true
+        restoreAudioStreams()
         mainHandler.removeCallbacks(restartRunnable)
         try {
             speechRecognizer?.stopListening()
@@ -373,11 +471,12 @@ class MatrixWakeWordService : Service() {
         if (!isRunning) return
         isPaused = false
         backoffDelayMs = BASE_DELAY_MS
-        scheduleRestart(300L)
+        scheduleRestart(BASE_DELAY_MS)
     }
 
     private fun destroySpeechRecognizer() {
         try {
+            restoreAudioStreams()
             speechRecognizer?.destroy()
         } catch (e: Exception) {
             Log.w(TAG, "Error destroying speechRecognizer: ${e.message}")
@@ -393,13 +492,14 @@ class MatrixWakeWordService : Service() {
         const val EXTRA_WAKE_WORD_TRIGGERED = "EXTRA_WAKE_WORD_TRIGGERED"
         const val EXTRA_INITIAL_QUERY = "EXTRA_INITIAL_QUERY"
         const val EXTRA_TRIGGER_TYPE = "EXTRA_TRIGGER_TYPE"
+        const val EXTRA_LANGUAGE = "EXTRA_LANGUAGE"
         const val ACTION_START = "com.matrixai.os.action.START_WAKE_WORD"
         const val ACTION_STOP = "com.matrixai.os.action.STOP_WAKE_WORD"
         const val ACTION_PAUSE = "com.matrixai.os.action.PAUSE_WAKE_WORD"
         const val ACTION_RESUME = "com.matrixai.os.action.RESUME_WAKE_WORD"
         const val ACTION_WAKE_WORD_TRIGGERED = "com.matrixai.os.action.WAKE_WORD_TRIGGERED"
 
-        private const val BASE_DELAY_MS = 300L
+        private const val BASE_DELAY_MS = 800L
         private const val MAX_BACKOFF_MS = 6000L
         private const val COOLDOWN_MS = 3000L
 
@@ -411,6 +511,9 @@ class MatrixWakeWordService : Service() {
         var isPaused: Boolean = false
             private set
 
+        @Volatile
+        var currentLanguage: String = "en"
+
         var serviceInstance: MatrixWakeWordService? = null
 
         private val WAKE_PATTERNS = listOf(
@@ -421,7 +524,10 @@ class MatrixWakeWordService : Service() {
             Regex("""\bokay\s+matrix\b""", RegexOption.IGNORE_CASE),
             Regex("""\bmatrix\b""", RegexOption.IGNORE_CASE),
             Regex("""\bhey\s+metrix\b""", RegexOption.IGNORE_CASE),
-            Regex("""\bmetrix\b""", RegexOption.IGNORE_CASE)
+            Regex("""\bmetrix\b""", RegexOption.IGNORE_CASE),
+            // Malayalam Wake-Word Patterns
+            Regex("""\bഹേയ്\s+മാട്രിക്സ്\b""", RegexOption.IGNORE_CASE),
+            Regex("""\bമാട്രിക്സ്\b""", RegexOption.IGNORE_CASE)
         )
 
         /**

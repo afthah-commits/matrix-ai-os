@@ -28,6 +28,7 @@ class ByokKeyManager {
   static const String _keyOpenAiBaseUrl = 'byok_openai_base_url';
   static const String _keyProvider = 'byok_selected_provider';
   static const String _keyOfflineOnly = 'byok_offline_only_mode';
+  static const String _keyLanguage = 'byok_language_preference';
 
   static const String defaultOpenAiBaseUrl = 'https://api.openai.com/v1';
 
@@ -83,6 +84,17 @@ class ByokKeyManager {
 
   Future<void> setOfflineOnly(bool offline) async {
     await _storage.write(key: _keyOfflineOnly, value: offline ? 'true' : 'false');
+  }
+
+  /// Gets the user's preferred assistant language ('en' for English, 'ml' for Malayalam).
+  Future<String> getLanguagePreference() async {
+    final lang = await _storage.read(key: _keyLanguage);
+    return lang ?? 'en';
+  }
+
+  /// Sets the user's preferred assistant language ('en' or 'ml').
+  Future<void> setLanguagePreference(String languageCode) async {
+    await _storage.write(key: _keyLanguage, value: languageCode);
   }
 
   Future<void> clearAllKeys() async {

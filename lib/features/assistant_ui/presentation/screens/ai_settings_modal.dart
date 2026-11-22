@@ -30,6 +30,7 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
 
   bool _isOfflineOnly = false;
   AiProvider _selectedProvider = AiProvider.gemini;
+  String _selectedLanguage = 'en';
   bool _obscureGeminiKey = true;
   bool _obscureOpenAiKey = true;
   bool _isLoading = true;
@@ -48,11 +49,13 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
     final geminiKey = await byok.getGeminiApiKey();
     final openAiKey = await byok.getOpenAiApiKey();
     final baseUrl = await byok.getOpenAiBaseUrl();
+    final lang = await byok.getLanguagePreference();
 
     if (mounted) {
       setState(() {
         _isOfflineOnly = isOffline;
         _selectedProvider = provider;
+        _selectedLanguage = lang;
         _geminiKeyController.text = geminiKey ?? '';
         _openAiKeyController.text = openAiKey ?? '';
         _openAiBaseUrlController.text = baseUrl;
@@ -74,6 +77,9 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
 
     await byok.setOfflineOnly(_isOfflineOnly);
     await byok.setSelectedProvider(_selectedProvider);
+    await byok.setLanguagePreference(_selectedLanguage);
+    await ref.read(voiceAssistantServiceProvider).setLanguage(_selectedLanguage);
+    await ref.read(wakeWordBridgeServiceProvider).setLanguage(_selectedLanguage);
 
     if (_geminiKeyController.text.trim().isNotEmpty) {
       await byok.setGeminiApiKey(_geminiKeyController.text.trim());
@@ -209,7 +215,79 @@ class _AiSettingsModalState extends ConsumerState<AiSettingsModal> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
+
+                  // Language Preference (Bilingual English / Malayalam)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: surfaceCard,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: borderColor),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: const [
+                            Icon(Icons.translate_rounded, color: neonCyan, size: 20),
+                            SizedBox(width: 10),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Assistant Language',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'സംഭാഷണ ഭാഷ തിരഞ്ഞെടുക്കുക',
+                                  style: TextStyle(fontSize: 10.5, color: Colors.white54),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0F172A),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: borderColor),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _selectedLanguage,
+                              dropdownColor: const Color(0xFF0F172A),
+                              style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'en',
+                                  child: Text('English (US)'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'ml',
+                                  child: Text('മലയാളം (Malayalam)'),
+                                ),
+                              ],
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setState(() {
+                                    _selectedLanguage = val;
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
 
                   // 1. Air-Gapped Offline Mode Card
                   Container(

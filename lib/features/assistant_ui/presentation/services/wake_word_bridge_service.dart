@@ -165,6 +165,39 @@ class WakeWordBridgeService extends ChangeNotifier {
     }
   }
 
+  /// Checks if Android SYSTEM_ALERT_WINDOW overlay permission is granted.
+  Future<bool> isOverlayPermissionGranted() async {
+    try {
+      final granted =
+          await _channel.invokeMethod<bool>('isOverlayPermissionGranted') ?? false;
+      return granted;
+    } catch (e) {
+      debugPrint('[WakeWordBridgeService] isOverlayPermissionGranted error: $e');
+      return false;
+    }
+  }
+
+  /// Opens Android Settings screen to grant floating overlay permission.
+  Future<bool> openOverlayPermissionSettings() async {
+    try {
+      final success =
+          await _channel.invokeMethod<bool>('openOverlayPermissionSettings') ?? false;
+      return success;
+    } catch (e) {
+      debugPrint('[WakeWordBridgeService] openOverlayPermissionSettings error: $e');
+      return false;
+    }
+  }
+
+  /// Sets the active language ('en' or 'ml') on native wake-word and overlay services.
+  Future<void> setLanguage(String languageCode) async {
+    try {
+      await _channel.invokeMethod('setLanguage', {'language': languageCode});
+    } catch (e) {
+      debugPrint('[WakeWordBridgeService] setLanguage error: $e');
+    }
+  }
+
   @override
   void dispose() {
     _eventController.close();

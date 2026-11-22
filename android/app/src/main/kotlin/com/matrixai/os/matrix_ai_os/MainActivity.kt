@@ -4,6 +4,7 @@ import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -135,6 +136,38 @@ class MainActivity : FlutterActivity() {
                         MatrixWakeWordService.serviceInstance?.resumeListening()
                         result.success(true)
                     }
+                    "isOverlayPermissionGranted" -> {
+                        val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            Settings.canDrawOverlays(applicationContext)
+                        } else {
+                            true
+                        }
+                        result.success(hasOverlay)
+                    }
+                    "openOverlayPermissionSettings" -> {
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:$packageName")
+                                ).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                startActivity(intent)
+                                result.success(true)
+                            } else {
+                                result.success(true)
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to open overlay permission settings: ${e.message}")
+                            result.error("INTENT_ERROR", e.message, null)
+                        }
+                    }
+                    "setLanguage" -> {
+                        val lang = call.argument<String>("language") ?: "en"
+                        MatrixWakeWordService.currentLanguage = lang
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -158,6 +191,16 @@ class MainActivity : FlutterActivity() {
         val isAssist = action == Intent.ACTION_ASSIST || action == Intent.ACTION_VOICE_COMMAND
 
         if (isWakeWord || isAssist) {
+            if (isAssist && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
+                val overlayIntent = Intent(this, MatrixOverlayService::class.java).apply {
+                    putExtra(MatrixWakeWordService.EXTRA_TRIGGER_TYPE, "assist_intent")
+                    putExtra(MatrixWakeWordService.EXTRA_LANGUAGE, MatrixWakeWordService.currentLanguage)
+                }
+                startService(overlayIntent)
+                moveTaskToBack(true)
+                return
+            }
+
             wakeScreenAndDismissKeyguard()
 
             val triggerType = when {

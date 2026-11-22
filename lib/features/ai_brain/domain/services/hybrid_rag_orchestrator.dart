@@ -333,11 +333,16 @@ class HybridRagOrchestrator {
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey',
     );
 
+    final isMalayalam = RegExp(r'[\u0D00-\u0D7F]').hasMatch(maskedPrompt);
+    final mlInstruction = isMalayalam
+        ? '\n\nUSER LANGUAGE: Malayalam (മലയാളം). You MUST respond completely in natural, conversational Malayalam script (മലയാളത്തിൽ മറുപടി നൽകുക).'
+        : '';
+
     final systemInstruction =
         'You are Matrix AI OS, a privacy-first on-device personal operating system. '
         'Personal identifiers in the context appear as privacy tokens like [PHONE_1], [ACCOUNT_1], [ID_DOC_1]. '
         'You MUST preserve these exact privacy tokens in your response so the user device can restore them locally. '
-        'Answer concisely and accurately based on the provided context.\n\n'
+        'Answer concisely and accurately based on the provided context.$mlInstruction\n\n'
         '${AutonomousAgentService.getToolSystemInstructions()}';
 
     final userContent = StringBuffer();
@@ -399,10 +404,15 @@ class HybridRagOrchestrator {
     final cleanBase = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
     final uri = Uri.parse('$cleanBase/chat/completions');
 
+    final isMalayalam = RegExp(r'[\u0D00-\u0D7F]').hasMatch(maskedPrompt);
+    final mlInstruction = isMalayalam
+        ? '\n\nUSER LANGUAGE: Malayalam (മലയാളം). You MUST respond completely in natural, conversational Malayalam script (മലയാളത്തിൽ മറുപടി നൽകുക).'
+        : '';
+
     final systemPrompt =
         'You are Matrix AI OS, a privacy-first on-device personal operating system. '
         'Personal identifiers in the context appear as privacy tokens like [PHONE_1], [ACCOUNT_1], [ID_DOC_1]. '
-        'Preserve these exact tokens in your response so the user device can restore them locally.\n\n'
+        'Preserve these exact tokens in your response so the user device can restore them locally.$mlInstruction\n\n'
         '${AutonomousAgentService.getToolSystemInstructions()}';
 
     final userContent = StringBuffer();
@@ -483,39 +493,54 @@ class HybridRagOrchestrator {
     String? errorNote,
   }) {
     final buffer = StringBuffer();
+    final isMalayalam = RegExp(r'[\u0D00-\u0D7F]').hasMatch(prompt);
 
     if (errorNote != null) {
       buffer.writeln('> $errorNote\n');
     } else if (isAirGapped) {
-      buffer.writeln('> 🛡️ *100% Air-Gapped Mode active. Running entirely on-device.*\n');
+      buffer.writeln(
+        isMalayalam
+            ? '> 🛡️ *100% എയർ-ഗാപ്ഡ് ഓഫ്‌ലൈൻ മോഡ് സജീവം. ഡാറ്റ പൂർണ്ണമായും ഉപകരണത്തിൽ മാത്രം.*\n'
+            : '> 🛡️ *100% Air-Gapped Mode active. Running entirely on-device.*\n',
+      );
     }
 
     switch (intent) {
       case UserIntent.personalMemory:
         if (personalResult != null && personalResult.isNotEmpty) {
-          buffer.writeln('Here is what I found in your personal encrypted memory:\n');
+          buffer.writeln(
+            isMalayalam
+                ? 'നിങ്ങളുടെ എൻക്രിപ്റ്റ് ചെയ്ത മെമ്മറിയിൽ നിന്ന് കണ്ടെത്തിയ വിവരങ്ങൾ:\n'
+                : 'Here is what I found in your personal encrypted memory:\n',
+          );
           if (personalResult.memories.isNotEmpty) {
             for (final m in personalResult.memories) {
               buffer.writeln('• **${m.category.toUpperCase()}**: ${m.content}');
             }
           }
           if (personalResult.edges.isNotEmpty) {
-            buffer.writeln('\n**Knowledge Graph Connections:**');
+            buffer.writeln(isMalayalam ? '\n**നോളജ് ഗ്രാഫ് ബന്ധങ്ങൾ:**' : '\n**Knowledge Graph Connections:**');
             for (final e in personalResult.edges) {
               buffer.writeln('• ${e.sourceEntity} → *${e.relationType}* → ${e.targetEntity} (${e.context})');
             }
           }
         } else {
           buffer.writeln(
-            'I checked your encrypted local storage, but found no matching records for "$prompt". '
-            'You can trigger log synchronization or index gallery photos from the Core Dashboard.',
+            isMalayalam
+                ? 'നിങ്ങളുടെ എൻക്രിപ്റ്റ് ചെയ്ത ലോക്കൽ മെമ്മറിയിൽ "$prompt" സംബന്ധിച്ച രേഖകളൊന്നും കണ്ടെത്തിയില്ല.'
+                : 'I checked your encrypted local storage, but found no matching records for "$prompt". '
+                    'You can trigger log synchronization or index gallery photos from the Core Dashboard.',
           );
         }
         break;
 
       case UserIntent.liveWebWorld:
         if (webResult != null && webResult.isSuccess) {
-          buffer.writeln('Here are live web results for "$prompt":\n');
+          buffer.writeln(
+            isMalayalam
+                ? '"$prompt" സംബന്ധിച്ച ലൈവ് വെബ് വിവരങ്ങൾ:\n'
+                : 'Here are live web results for "$prompt":\n',
+          );
           for (final item in webResult.items) {
             buffer.writeln('• **${item.title}**');
             buffer.writeln('  ${item.snippet}');
@@ -527,8 +552,12 @@ class HybridRagOrchestrator {
         } else {
           buffer.writeln(
             isAirGapped
-                ? 'Air-Gapped Mode is active. Live web search is disabled to preserve complete network isolation.'
-                : 'Unable to retrieve live web results at this moment. Please check your network connection or try again.',
+                ? (isMalayalam
+                    ? 'എയർ-ഗാപ്ഡ് മോഡ് സജീവമാണ്. നെറ്റ്വർക്ക് ഐസൊലേഷൻ ഉറപ്പാക്കാൻ ലൈവ് വെബ് തിരച്ചിൽ പ്രവർത്തനരഹിതമാക്കിയിരിക്കുന്നു.'
+                    : 'Air-Gapped Mode is active. Live web search is disabled to preserve complete network isolation.')
+                : (isMalayalam
+                    ? 'ഇപ്പോൾ ലൈവ് വെബ് വിവരങ്ങൾ ലഭ്യമാക്കാൻ കഴിഞ്ഞില്ല. ഇന്റർനെറ്റ് കണക്ഷൻ പരിശോധിച്ച് വീണ്ടും ശ്രമിക്കുക.'
+                    : 'Unable to retrieve live web results at this moment. Please check your network connection or try again.'),
           );
         }
         break;

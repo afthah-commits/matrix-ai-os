@@ -129,6 +129,68 @@ If the user request is an action that can be executed by a tool, you MUST respon
 ''';
   }
 
+  /// Maps Malayalam app names to standard English app names for Android launcher.
+  static String mapMalayalamAppNameToEnglish(String name) {
+    final clean = name.trim().toLowerCase();
+    switch (clean) {
+      case 'യൂട്യൂബ്':
+        return 'YouTube';
+      case 'വാട്സാപ്പ്':
+      case 'വാട്സാപ്':
+        return 'WhatsApp';
+      case 'ക്യാമറ':
+        return 'Camera';
+      case 'സെറ്റിംഗ്സ്':
+        return 'Settings';
+      case 'ക്രോം':
+        return 'Chrome';
+      case 'ഇൻസ്റ്റാഗ്രാം':
+        return 'Instagram';
+      case 'ഗാലറി':
+        return 'Gallery';
+      case 'ഫോൺ':
+        return 'Phone';
+      default:
+        return name;
+    }
+  }
+
+  /// Cleans Malayalam case inflections (accusative/dative) from contact names.
+  /// E.g. "രാഹുലിന്" -> "രാഹുൽ", "ഡോക്ടറെ" -> "ഡോക്ടർ", "അമ്മയെ" -> "അമ്മ"
+  static String cleanMalayalamContactName(String name) {
+    var clean = name.trim();
+    if (clean.endsWith('ിന്') && clean.length > 3) {
+      final base = clean.substring(0, clean.length - 3);
+      return base.endsWith('ല') ? '${base.substring(0, base.length - 1)}ൽ' : base;
+    }
+    if (clean.endsWith('ിനെ') && clean.length > 3) {
+      final base = clean.substring(0, clean.length - 3);
+      return base.endsWith('ല') ? '${base.substring(0, base.length - 1)}ൽ' : base;
+    }
+    if (clean.endsWith('റെ') && clean.length > 2) {
+      final base = clean.substring(0, clean.length - 2);
+      return '${base}ർ';
+    }
+    if (clean.endsWith('യെ') && clean.length > 2) {
+      return clean.substring(0, clean.length - 2);
+    }
+    if (clean.endsWith('നെ') && clean.length > 2) {
+      final base = clean.substring(0, clean.length - 2);
+      return base == 'അച്ഛ' ? 'അച്ഛൻ' : base;
+    }
+    if (clean.endsWith('ന്') && clean.length > 2) {
+      final base = clean.substring(0, clean.length - 2);
+      return base == 'അച്ഛ' ? 'അച്ഛൻ' : base;
+    }
+    if (clean.endsWith('ക്ക്') && clean.length > 3) {
+      return clean.substring(0, clean.length - 3);
+    }
+    if (clean.endsWith('യ്ക്ക്') && clean.length > 4) {
+      return clean.substring(0, clean.length - 4);
+    }
+    return clean;
+  }
+
   /// Parses an action intent from natural language using deterministic rules (offline-capable).
   AgentToolCall? parseToolCall(String userPrompt) {
     final lower = userPrompt.trim().toLowerCase();
@@ -166,11 +228,30 @@ If the user request is an action that can be executed by a tool, you MUST respon
       );
     }
 
-    // 3. UI Automation: Read Screen / Back / Home
+    // 2b. Malayalam App Launch: E.g., "യൂട്യൂബ് തുറക്കൂ", "ക്യാമറ തുറക്കൂ", "സെറ്റിംഗ്സ് ഓപ്പൺ ചെയ്യൂ"
+    final openAppMalayalamRegex = RegExp(
+      r'^(.+?)\s+(?:തുറക്കൂ|ഓപ്പൺ ചെയ്യൂ|തുറക്കുക|സ്റ്റാർട്ട് ചെയ്യൂ)$',
+      caseSensitive: false,
+    );
+    final openMlMatch = openAppMalayalamRegex.firstMatch(userPrompt.trim());
+    if (openMlMatch != null) {
+      final rawAppName = openMlMatch.group(1)!.trim();
+      final mappedName = mapMalayalamAppNameToEnglish(rawAppName);
+      return AgentToolCall(
+        toolName: AgentToolType.launchApp.code,
+        arguments: {'name': mappedName},
+        rationale: 'User requested opening application "$mappedName" (Malayalam: $rawAppName)',
+        isSensitive: false,
+      );
+    }
+
+    // 3. UI Automation: Read Screen / Back / Home (English & Malayalam)
     if (lower.contains('read screen') ||
         lower.contains('read my screen') ||
         lower.contains('what is on my screen') ||
-        lower.contains('what\'s on screen')) {
+        lower.contains('what\'s on screen') ||
+        lower.contains('സ്ക്രീൻ വായിക്കൂ') ||
+        lower.contains('ഇത് വായിക്കൂ')) {
       return const AgentToolCall(
         toolName: 'UI_AUTOMATION_STEP',
         arguments: {'action': 'read_screen'},
@@ -178,7 +259,7 @@ If the user request is an action that can be executed by a tool, you MUST respon
         isSensitive: false,
       );
     }
-    if (lower == 'go back' || lower == 'back') {
+    if (lower == 'go back' || lower == 'back' || lower == 'ബാക്ക്' || lower == 'ബാക്ക് പോകുക') {
       return const AgentToolCall(
         toolName: 'UI_AUTOMATION_STEP',
         arguments: {'action': 'back'},
@@ -186,7 +267,7 @@ If the user request is an action that can be executed by a tool, you MUST respon
         isSensitive: false,
       );
     }
-    if (lower == 'go home' || lower == 'home') {
+    if (lower == 'go home' || lower == 'home' || lower == 'ഹോം') {
       return const AgentToolCall(
         toolName: 'UI_AUTOMATION_STEP',
         arguments: {'action': 'home'},
@@ -207,6 +288,22 @@ If the user request is an action that can be executed by a tool, you MUST respon
         toolName: AgentToolType.scrollScreen.code,
         arguments: {'direction': direction},
         rationale: 'Scroll active screen $direction',
+        isSensitive: false,
+      );
+    }
+    if (lower.contains('താഴേക്ക് സ്ക്രോൾ') || lower == 'താഴേക്ക്') {
+      return AgentToolCall(
+        toolName: AgentToolType.scrollScreen.code,
+        arguments: {'direction': 'down'},
+        rationale: 'Scroll active screen down (Malayalam)',
+        isSensitive: false,
+      );
+    }
+    if (lower.contains('മുകളിലേക്ക് സ്ക്രോൾ') || lower == 'മുകളിലേക്ക്') {
+      return AgentToolCall(
+        toolName: AgentToolType.scrollScreen.code,
+        arguments: {'direction': 'up'},
+        rationale: 'Scroll active screen up (Malayalam)',
         isSensitive: false,
       );
     }
@@ -246,32 +343,96 @@ If the user request is an action that can be executed by a tool, you MUST respon
       );
     }
 
-    // 7. Sensitive Action: Call Number
-    final callRegex = RegExp(r'^(?:call|dial)\s+([+0-9\s\-]{6,20})$', caseSensitive: false);
+    // 7. Sensitive Action: Call Number or Contact Name (English & Malayalam)
+    final callRegex = RegExp(r'^(?:can you\s+)?(?:please\s+)?(?:call|dial)\s+(.+)$', caseSensitive: false);
     final callMatch = callRegex.firstMatch(userPrompt.trim());
     if (callMatch != null) {
       final number = callMatch.group(1)!.trim();
       return AgentToolCall(
         toolName: AgentToolType.makeCall.code,
         arguments: {'phoneNumber': number},
-        rationale: 'Dialing phone number $number',
+        rationale: 'Dialing contact $number',
+        isSensitive: true,
+      );
+    }
+    final callMalayalamRegex = RegExp(r'^(.+?)\s+(?:വിളിക്കൂ|കോൾ ചെയ്യൂ)$', caseSensitive: false);
+    final callMlMatch = callMalayalamRegex.firstMatch(userPrompt.trim());
+    if (callMlMatch != null) {
+      final rawTarget = callMlMatch.group(1)!.trim();
+      final target = cleanMalayalamContactName(rawTarget);
+      return AgentToolCall(
+        toolName: AgentToolType.makeCall.code,
+        arguments: {'phoneNumber': target},
+        rationale: 'Dialing contact $target (Malayalam: $rawTarget)',
         isSensitive: true,
       );
     }
 
-    // 8. Sensitive Action: WhatsApp Message
-    final waRegex = RegExp(
-      r'^(?:whatsapp|send whatsapp to)\s+([+0-9\s\-]{6,20})[:\s]+(?:saying\s+)?(.+)$',
+    // 8. Sensitive Action: WhatsApp Message (English with names/numbers & Malayalam)
+    // E.g. "Send Hi to Rahulan on WhatsApp", "Send message to Mom on WhatsApp: I will be late"
+    final waEnRegex1 = RegExp(
+      r'^(?:can you\s+)?(?:please\s+)?(?:send\s+)?(?:message\s+)?["\x27]?(.+?)["\x27]?\s+(?:to\s+)(.+?)\s+(?:on|via)\s+whatsapp$',
       caseSensitive: false,
     );
-    final waMatch = waRegex.firstMatch(userPrompt.trim());
-    if (waMatch != null) {
-      final number = waMatch.group(1)!.trim();
-      final msg = waMatch.group(2)!.trim();
+    final waEnMatch1 = waEnRegex1.firstMatch(userPrompt.trim());
+    if (waEnMatch1 != null) {
+      final msg = waEnMatch1.group(1)!.trim();
+      final recipient = waEnMatch1.group(2)!.trim();
       return AgentToolCall(
         toolName: AgentToolType.sendWhatsApp.code,
-        arguments: {'phoneNumber': number, 'message': msg},
-        rationale: 'Composing WhatsApp message to $number',
+        arguments: {'phoneNumber': recipient, 'message': msg},
+        rationale: 'Composing WhatsApp message to $recipient',
+        isSensitive: true,
+      );
+    }
+
+    final waEnRegex2 = RegExp(
+      r'^(?:can you\s+)?(?:please\s+)?(?:whatsapp|send whatsapp to)\s+(.+?)(?:\s+saying|\s*:\s*|\s+message\s+)\s*["\x27]?(.+?)["\x27]?$',
+      caseSensitive: false,
+    );
+    final waEnMatch2 = waEnRegex2.firstMatch(userPrompt.trim());
+    if (waEnMatch2 != null) {
+      final recipient = waEnMatch2.group(1)!.trim();
+      final msg = waEnMatch2.group(2)!.trim();
+      return AgentToolCall(
+        toolName: AgentToolType.sendWhatsApp.code,
+        arguments: {'phoneNumber': recipient, 'message': msg},
+        rationale: 'Composing WhatsApp message to $recipient',
+        isSensitive: true,
+      );
+    }
+
+    // Malayalam WhatsApp Message: E.g., "രാഹുലിന് വാട്സാപ്പിൽ ഹായ് അയക്കൂ", "വാട്സാപ്പിൽ രാഹുലിന് ഹായ് അയക്കൂ"
+    final waMlRegex1 = RegExp(
+      r'^(.+?)\s+വാട്സാപ്പിൽ\s+(.+?)\s+അയക്കൂ$',
+      caseSensitive: false,
+    );
+    final waMlMatch1 = waMlRegex1.firstMatch(userPrompt.trim());
+    if (waMlMatch1 != null) {
+      final rawRecipient = waMlMatch1.group(1)!.trim();
+      final recipient = cleanMalayalamContactName(rawRecipient);
+      final msg = waMlMatch1.group(2)!.trim();
+      return AgentToolCall(
+        toolName: AgentToolType.sendWhatsApp.code,
+        arguments: {'phoneNumber': recipient, 'message': msg},
+        rationale: 'Composing WhatsApp message to $recipient (Malayalam)',
+        isSensitive: true,
+      );
+    }
+
+    final waMlRegex2 = RegExp(
+      r'^വാട്സാപ്പിൽ\s+(.+?)\s+(.+?)\s+അയക്കൂ$',
+      caseSensitive: false,
+    );
+    final waMlMatch2 = waMlRegex2.firstMatch(userPrompt.trim());
+    if (waMlMatch2 != null) {
+      final rawRecipient = waMlMatch2.group(1)!.trim();
+      final recipient = cleanMalayalamContactName(rawRecipient);
+      final msg = waMlMatch2.group(2)!.trim();
+      return AgentToolCall(
+        toolName: AgentToolType.sendWhatsApp.code,
+        arguments: {'phoneNumber': recipient, 'message': msg},
+        rationale: 'Composing WhatsApp message to $recipient (Malayalam)',
         isSensitive: true,
       );
     }
@@ -292,7 +453,7 @@ If the user request is an action that can be executed by a tool, you MUST respon
       );
     }
 
-    // 10. Deep Document, Passport, Password & File Search
+    // 10. Deep Document, Passport, Password & File Search (English & Malayalam)
     if (lower.contains('passport') ||
         lower.contains('password') ||
         lower.contains('boarding pass') ||
@@ -314,7 +475,13 @@ If the user request is an action that can be executed by a tool, you MUST respon
         lower.contains('my scan') ||
         lower.contains('my id') ||
         lower.contains('aadhaar') ||
-        lower.contains('pan card')) {
+        lower.contains('pan card') ||
+        lower.contains('പാസ്പോർട്ട്') ||
+        lower.contains('ടിക്കറ്റ്') ||
+        lower.contains('രേഖ') ||
+        lower.contains('ഡോക്യുമെന്റ്') ||
+        lower.contains('ആധാർ') ||
+        lower.contains('ഫയൽ')) {
       return AgentToolCall(
         toolName: AgentToolType.searchFilesAndOcr.code,
         arguments: {'query': userPrompt.trim()},

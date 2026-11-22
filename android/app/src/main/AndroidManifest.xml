@@ -74,6 +74,12 @@
             android:foregroundServiceType="microphone"
             android:exported="false" />
 
+        <!-- Floating Siri-Style Pop-Up Overlay Service -->
+        <service
+            android:name=".MatrixOverlayService"
+            android:label="Matrix Voice Pop-Up Overlay"
+            android:exported="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

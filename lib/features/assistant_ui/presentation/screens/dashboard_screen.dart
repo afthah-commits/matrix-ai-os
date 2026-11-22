@@ -17,10 +17,23 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsBindingObserver {
+  bool _overlayGranted = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkOverlayPermission());
+  }
+
+  Future<void> _checkOverlayPermission() async {
+    final granted =
+        await ref.read(wakeWordBridgeServiceProvider).isOverlayPermissionGranted();
+    if (mounted) {
+      setState(() {
+        _overlayGranted = granted;
+      });
+    }
   }
 
   @override
@@ -35,6 +48,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
       ref.read(deviceIngestionControllerProvider.notifier).checkPermissions();
       ref.invalidate(accessibilityEnabledProvider);
       ref.read(dashboardControllerProvider.notifier).refreshMetrics();
+      _checkOverlayPermission();
     }
   }
 
@@ -256,6 +270,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                           .read(actionDispatcherServiceProvider)
                           .openAccessibilitySettings(),
                       wakeWordBridge: ref.watch(wakeWordBridgeServiceProvider),
+                      isOverlayGranted: _overlayGranted,
                       surfaceColor: surfaceCardColor,
                       borderColor: borderColor,
                       emerald: primaryEmerald,
@@ -608,6 +623,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
     required bool isAccessibilityGranted,
     required VoidCallback onOpenAccessibility,
     required WakeWordBridgeService wakeWordBridge,
+    required bool isOverlayGranted,
     required Color surfaceColor,
     required Color borderColor,
     required Color emerald,
@@ -773,6 +789,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
             title: 'Default Assistant (Long-Press Power)',
             isGranted: false,
             onAction: () => wakeWordBridge.openDefaultAssistantSettings(),
+            actionLabel: 'Settings',
+            emerald: emerald,
+          ),
+          const SizedBox(height: 8),
+
+          // 10. Floating Pop-Up Overlay (Siri-Style)
+          _buildPermissionRow(
+            title: 'Floating Pop-Up Overlay (Siri-Style)',
+            isGranted: isOverlayGranted,
+            onAction: () => wakeWordBridge.openOverlayPermissionSettings(),
             actionLabel: 'Settings',
             emerald: emerald,
           ),
