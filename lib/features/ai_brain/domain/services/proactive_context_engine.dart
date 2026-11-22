@@ -100,8 +100,11 @@ class ProactiveContextEngine {
 
     final avgDailySpend = daysCounted > 0 ? (totalPastSpend / daysCounted) : 0.0;
 
-    // Calculate today's spending from recent transaction MemoryNodes
-    final recentMemories = await _dbService.getRecentDecryptedNodes(limit: 40);
+    // Calculate today's spending from recent transaction MemoryNodes (max 15 records)
+    final recentMemories = await _dbService.getDecryptedNodesByCategory(
+      MemoryCategory.transaction,
+      limit: 15,
+    );
     double todaySpend = 0.0;
 
     for (final m in recentMemories) {
@@ -143,7 +146,10 @@ class ProactiveContextEngine {
 
   /// Evaluates screen time for today (> 240 mins = 4 hours).
   Future<ProactiveInsight?> _evaluateScreenTime(DateTime now) async {
-    final recentMemories = await _dbService.getRecentDecryptedNodes(limit: 30);
+    final recentMemories = await _dbService.getDecryptedNodesByCategory(
+      MemoryCategory.screenTime,
+      limit: 15,
+    );
 
     int todayScreenTimeMins = 0;
 
@@ -179,7 +185,10 @@ class ProactiveContextEngine {
 
   /// Scans OCR documents for upcoming ticket bookings or travel within 48 hours.
   Future<ProactiveInsight?> _evaluateUpcomingTickets(DateTime now) async {
-    final recentMemories = await _dbService.getRecentDecryptedNodes(limit: 50);
+    final recentMemories = await _dbService.getDecryptedNodesByCategory(
+      MemoryCategory.ocrDoc,
+      limit: 15,
+    );
 
     for (final m in recentMemories) {
       if (m.category == MemoryCategory.ocrDoc && m.metadataJson.isNotEmpty) {

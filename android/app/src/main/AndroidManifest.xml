@@ -79,6 +79,7 @@
         <service
             android:name=".MatrixOverlayService"
             android:label="Matrix Voice Pop-Up Overlay"
+            android:foregroundServiceType="microphone"
             android:exported="false" />
 
         <activity

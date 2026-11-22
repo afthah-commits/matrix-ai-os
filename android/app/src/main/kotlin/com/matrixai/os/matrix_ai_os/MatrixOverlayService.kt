@@ -2,9 +2,13 @@ package com.matrixai.os.matrix_ai_os
 
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
@@ -28,6 +32,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.app.NotificationCompat
 import java.util.Locale
 
 /**
@@ -59,6 +64,8 @@ class MatrixOverlayService : Service(), TextToSpeech.OnInitListener {
 
     override fun onCreate() {
         super.onCreate()
+        startForegroundNotification()
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             Log.w(TAG, "Overlay permission not granted; stopping MatrixOverlayService")
             stopSelf()
@@ -68,6 +75,35 @@ class MatrixOverlayService : Service(), TextToSpeech.OnInitListener {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
         tts = TextToSpeech(this, this)
         buildOverlayView()
+    }
+
+    private fun startForegroundNotification() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                OVERLAY_CHANNEL_ID,
+                "Matrix Voice Assistant Overlay",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Floating Siri-Style Voice Overlay for Matrix AI"
+                setShowBadge(false)
+            }
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(channel)
+        }
+
+        val notification = NotificationCompat.Builder(this, OVERLAY_CHANNEL_ID)
+            .setContentTitle("Matrix AI OS")
+            .setContentText("Voice Assistant Overlay active")
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(OVERLAY_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        } else {
+            startForeground(OVERLAY_NOTIFICATION_ID, notification)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -487,6 +523,14 @@ class MatrixOverlayService : Service(), TextToSpeech.OnInitListener {
 
         // Resume hands-free background wake-word listening
         MatrixWakeWordService.serviceInstance?.resumeListening()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
+
         stopSelf()
     }
 
@@ -507,5 +551,7 @@ class MatrixOverlayService : Service(), TextToSpeech.OnInitListener {
 
     companion object {
         private const val TAG = "MatrixOverlayService"
+        private const val OVERLAY_CHANNEL_ID = "matrix_voice_overlay_channel"
+        private const val OVERLAY_NOTIFICATION_ID = 2025
     }
 }

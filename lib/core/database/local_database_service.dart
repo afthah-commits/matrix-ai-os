@@ -187,7 +187,8 @@ class LocalDatabaseService {
   }
 
   /// Returns recent memory nodes decrypted for assistant reasoning/UI display.
-  Future<List<DecryptedMemoryNode>> getRecentDecryptedNodes({int limit = 50}) async {
+  /// Yields execution every 10 items via microtask to maintain 60/120fps.
+  Future<List<DecryptedMemoryNode>> getRecentDecryptedNodes({int limit = 15}) async {
     _ensureInitialized();
 
     final query = (_memoryBox!.query()
@@ -197,8 +198,11 @@ class LocalDatabaseService {
     try {
       final rawNodes = query.find().take(limit).toList();
       final decryptedList = <DecryptedMemoryNode>[];
-      for (final raw in rawNodes) {
-        decryptedList.add(await decryptNode(raw));
+      for (int i = 0; i < rawNodes.length; i++) {
+        decryptedList.add(await decryptNode(rawNodes[i]));
+        if ((i + 1) % 10 == 0) {
+          await Future.delayed(Duration.zero);
+        }
       }
       return decryptedList;
     } finally {
@@ -207,9 +211,10 @@ class LocalDatabaseService {
   }
 
   /// Returns decrypted memory nodes filtered by [category].
+  /// Yields execution every 10 items via microtask to maintain 60/120fps.
   Future<List<DecryptedMemoryNode>> getDecryptedNodesByCategory(
     String category, {
-    int limit = 50,
+    int limit = 15,
   }) async {
     _ensureInitialized();
 
@@ -220,8 +225,11 @@ class LocalDatabaseService {
     try {
       final rawNodes = query.find().take(limit).toList();
       final decryptedList = <DecryptedMemoryNode>[];
-      for (final raw in rawNodes) {
-        decryptedList.add(await decryptNode(raw));
+      for (int i = 0; i < rawNodes.length; i++) {
+        decryptedList.add(await decryptNode(rawNodes[i]));
+        if ((i + 1) % 10 == 0) {
+          await Future.delayed(Duration.zero);
+        }
       }
       return decryptedList;
     } finally {
@@ -230,8 +238,9 @@ class LocalDatabaseService {
   }
 
   /// Returns all decrypted memory nodes sorted by timestamp descending.
+  /// Yields execution every 10 items via microtask to maintain 60/120fps.
   Future<List<DecryptedMemoryNode>> getAllDecryptedNodes({
-    int limit = 100,
+    int limit = 15,
   }) async {
     _ensureInitialized();
 
@@ -242,8 +251,11 @@ class LocalDatabaseService {
     try {
       final rawNodes = query.find().take(limit).toList();
       final decryptedList = <DecryptedMemoryNode>[];
-      for (final raw in rawNodes) {
-        decryptedList.add(await decryptNode(raw));
+      for (int i = 0; i < rawNodes.length; i++) {
+        decryptedList.add(await decryptNode(rawNodes[i]));
+        if ((i + 1) % 10 == 0) {
+          await Future.delayed(Duration.zero);
+        }
       }
       return decryptedList;
     } finally {
@@ -349,20 +361,25 @@ class LocalDatabaseService {
   /// Calculates the on-disk footprint in bytes of the local ObjectBox database.
   Future<int> getDatabaseSizeInBytes() async {
     if (_databaseDirectoryPath == null) return 0;
-    final dir = Directory(_databaseDirectoryPath!);
-    if (!await dir.exists()) return 0;
-
-    int totalBytes = 0;
     try {
-      await for (final entity in dir.list(recursive: true, followLinks: false)) {
+      final dataFile = File('$_databaseDirectoryPath${Platform.pathSeparator}data.mdb');
+      if (await dataFile.exists()) {
+        return await dataFile.length();
+      }
+      final dir = Directory(_databaseDirectoryPath!);
+      if (!await dir.exists()) return 0;
+
+      int totalBytes = 0;
+      await for (final entity in dir.list(followLinks: false)) {
         if (entity is File) {
           totalBytes += await entity.length();
         }
       }
+      return totalBytes;
     } catch (e) {
       debugPrint('[LocalDatabaseService] Error computing DB size: $e');
+      return 0;
     }
-    return totalBytes;
   }
 
   void _ensureInitialized() {

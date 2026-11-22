@@ -42,7 +42,7 @@ class PersonalDigestPlugin implements MatrixMcpPlugin {
   Future<McpPluginResult> execute(Map<String, dynamic> args) async {
     try {
       final now = DateTime.now();
-      final recentMemories = await _dbService.getRecentDecryptedNodes(limit: 60);
+      final recentMemories = await _dbService.getRecentDecryptedNodes(limit: 15);
 
       int totalScreenTime = 0;
       double totalDebit = 0.0;

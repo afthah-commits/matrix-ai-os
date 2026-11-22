@@ -333,15 +333,6 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                           color: voiceService.isListening ? amberAlert : primaryEmerald.withValues(alpha: 0.6),
                           width: voiceService.isListening ? 2.0 : 1.2,
                         ),
-                        boxShadow: voiceService.isListening
-                            ? [
-                                BoxShadow(
-                                  color: amberAlert.withValues(alpha: 0.35),
-                                  blurRadius: 10,
-                                  spreadRadius: 2,
-                                ),
-                              ]
-                            : null,
                       ),
                       child: Icon(
                         voiceService.isListening ? Icons.mic : Icons.mic_none,
@@ -384,16 +375,9 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                   ),
                   const SizedBox(width: 10),
                   Container(
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       color: primaryEmerald,
                       shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: primaryEmerald.withValues(alpha: 0.4),
-                          blurRadius: 10,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
                     ),
                     child: IconButton(
                       icon: const Icon(Icons.send_rounded, color: Colors.black, size: 20),
@@ -538,13 +522,6 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
               color: primaryEmerald.withValues(alpha: 0.7),
               width: 1.2,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: primaryEmerald.withValues(alpha: 0.12),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -590,13 +567,6 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
             color: msg.pendingAction != null ? amberAlert.withValues(alpha: 0.7) : borderColor,
             width: msg.pendingAction != null ? 1.5 : 1.2,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.35),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

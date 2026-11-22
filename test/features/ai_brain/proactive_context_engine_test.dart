@@ -19,7 +19,14 @@ class FakeLocalDatabaseServiceForProactive extends LocalDatabaseService {
 
   @override
   Future<List<DecryptedMemoryNode>> getRecentDecryptedNodes({int limit = 50}) async =>
-      fakeMemories;
+      fakeMemories.take(limit).toList();
+
+  @override
+  Future<List<DecryptedMemoryNode>> getDecryptedNodesByCategory(
+    String category, {
+    int limit = 15,
+  }) async =>
+      fakeMemories.where((m) => m.category == category).take(limit).toList();
 }
 
 void main() {

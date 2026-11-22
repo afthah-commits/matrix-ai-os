@@ -76,7 +76,12 @@ class _MemoryCategoryDetailScreenState
     final db = ref.read(localDatabaseServiceProvider);
 
     try {
-      final nodes = await db.getAllDecryptedNodes(limit: 300);
+      final List<DecryptedMemoryNode> nodes;
+      if (_activeCategory == 'all' || _activeCategory == 'daily_summary') {
+        nodes = await db.getAllDecryptedNodes(limit: 50);
+      } else {
+        nodes = await db.getDecryptedNodesByCategory(_activeCategory, limit: 50);
+      }
       final summaries = db.getAllDailySummaries();
 
       if (mounted) {

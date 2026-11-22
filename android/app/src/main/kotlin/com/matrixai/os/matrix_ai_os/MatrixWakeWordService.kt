@@ -482,7 +482,12 @@ class MatrixWakeWordService : Service() {
                 putExtra(EXTRA_TRIGGER_TYPE, "wake_word")
                 putExtra(EXTRA_LANGUAGE, currentLanguage)
             }
-            startService(overlayIntent)
+            try {
+                ContextCompat.startForegroundService(this, overlayIntent)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to start overlay foreground service: ${e.message}, falling back to MainActivity")
+                launchMainActivity(query)
+            }
         } else {
             // Fallback to full MainActivity if overlay permission not granted
             launchMainActivity(query)
@@ -516,16 +521,20 @@ class MatrixWakeWordService : Service() {
     private fun wakeScreenDisplay() {
         try {
             val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
-            if (powerManager?.isInteractive == false) {
-                @Suppress("DEPRECATION")
-                val wakeLock = powerManager.newWakeLock(
-                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
-                        PowerManager.ACQUIRE_CAUSES_WAKEUP or
-                        PowerManager.ON_AFTER_RELEASE,
-                    "matrix:wake_word_lock"
-                )
-                wakeLock.acquire(3000L)
-            }
+            @Suppress("DEPRECATION")
+            val screenLock = powerManager?.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                    PowerManager.ON_AFTER_RELEASE,
+                "matrix:wake_word_screen_lock"
+            )
+            screenLock?.acquire(3000L)
+
+            val partialLock = powerManager?.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "matrix:wake_word_cpu_lock"
+            )
+            partialLock?.acquire(3000L)
         } catch (e: Exception) {
             Log.w(TAG, "WakeLock acquisition error: ${e.message}")
         }
@@ -655,7 +664,7 @@ class MatrixWakeWordService : Service() {
         // VAD Tuning Parameters
         private const val SAMPLE_RATE = 16000
         private const val BUFFER_SIZE_SHORTS = 1024 // 2048 bytes (64ms)
-        private const val VAD_RMS_THRESHOLD = 950.0 // RMS voice energy threshold
+        private const val VAD_RMS_THRESHOLD = 280.0 // RMS voice energy threshold (conversational voice)
         private const val VAD_CONSECUTIVE_FRAMES = 2 // ~128ms of speech energy to trigger recognizer
         private const val COOLDOWN_MS = 3000L
 
