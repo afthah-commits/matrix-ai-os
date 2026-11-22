@@ -72,6 +72,12 @@ void main() {
                 'appName': 'Settings',
                 'packageName': 'com.android.settings',
               };
+            } else if (name == 'youtube') {
+              return {
+                'success': true,
+                'appName': 'YouTube',
+                'packageName': 'com.google.android.youtube',
+              };
             } else {
               return {
                 'success': false,
@@ -95,6 +101,37 @@ void main() {
 
           case 'performGlobalAction':
             return true;
+
+          case 'clickUiElement':
+            final target = (call.arguments as Map)['targetText']?.toString().toLowerCase() ?? '';
+            if (target.contains('pay now')) {
+              return {
+                'success': false,
+                'isFinancialBlocked': true,
+                'message': 'Safety Block: Financial action requires approval',
+              };
+            }
+            return {
+              'success': true,
+              'message': 'Clicked on "$target"',
+              'matchedText': target,
+            };
+
+          case 'typeUiText':
+            final text = (call.arguments as Map)['text']?.toString() ?? '';
+            return {
+              'success': true,
+              'message': 'Injected text: "$text"',
+              'injectedText': text,
+            };
+
+          case 'scrollUi':
+            final dir = (call.arguments as Map)['direction']?.toString() ?? 'down';
+            return {
+              'success': true,
+              'direction': dir,
+              'method': 'ACTION_SCROLL',
+            };
 
           default:
             return null;
@@ -184,6 +221,62 @@ void main() {
       expect(invoice!.toolName, equals('SEARCH_FILES_AND_OCR'));
     });
 
+    test('Parses compound multi-step workflow commands', () {
+      final compound = agentService.parseToolCall('open youtube and search flutter tutorials');
+      expect(compound, isNotNull);
+      expect(compound!.toolName, equals('MULTI_STEP_WORKFLOW'));
+      expect(compound.arguments['app'], equals('youtube'));
+      expect(compound.arguments['query'], equals('flutter tutorials'));
+      expect(compound.isSensitive, isFalse);
+    });
+
+    test('Parses click UI commands (safe vs financial)', () {
+      final safeClick = agentService.parseToolCall('click on Settings');
+      expect(safeClick, isNotNull);
+      expect(safeClick!.toolName, equals('CLICK_UI'));
+      expect(safeClick.arguments['targetText'], equals('Settings'));
+      expect(safeClick.isSensitive, isFalse);
+
+      final dangerousClick = agentService.parseToolCall('click on Pay Now');
+      expect(dangerousClick, isNotNull);
+      expect(dangerousClick!.toolName, equals('CLICK_UI'));
+      expect(dangerousClick.isSensitive, isTrue);
+    });
+
+    test('Parses type text commands', () {
+      final typeCall = agentService.parseToolCall('type "Matrix OS" into Search');
+      expect(typeCall, isNotNull);
+      expect(typeCall!.toolName, equals('TYPE_TEXT'));
+      expect(typeCall.arguments['text'], equals('Matrix OS'));
+      expect(typeCall.arguments['targetHint'], equals('Search'));
+    });
+
+    test('Parses scroll screen commands', () {
+      final scrollCall = agentService.parseToolCall('scroll down');
+      expect(scrollCall, isNotNull);
+      expect(scrollCall!.toolName, equals('SCROLL_SCREEN'));
+      expect(scrollCall.arguments['direction'], equals('down'));
+    });
+
+    test('Parses structured tool call from Cloud LLM JSON responses with financial safety check', () {
+      const llmClickJson = '''
+      {
+        "thought": "Need to click the checkout payment button",
+        "tool_call": {
+          "name": "CLICK_UI",
+          "arguments": {"targetText": "Confirm Payment"}
+        },
+        "response": "Clicking confirm payment."
+      }
+      ''';
+
+      final toolCall = agentService.parseToolCallFromJson(llmClickJson);
+      expect(toolCall, isNotNull);
+      expect(toolCall!.toolName, equals('CLICK_UI'));
+      expect(toolCall.arguments['targetText'], equals('Confirm Payment'));
+      expect(toolCall.isSensitive, isTrue); // Flagged due to "Confirm Payment"
+    });
+
     test('Parses structured tool call from Cloud LLM JSON responses', () {
       const llmJson = '''
       {
@@ -256,6 +349,64 @@ void main() {
       expect(result.finalResponse, contains('Network, Connected devices, Battery'));
       expect(result.actionBadge, equals('Screen Reader'));
       expect(nativeCalls.any((c) => c.method == 'getCurrentScreenContext'), isTrue);
+    });
+
+    test('Executes safe CLICK_UI and logs execution traces', () async {
+      final result = await agentService.executeAgentLoop('click on Settings');
+      expect(result.hasAction, isTrue);
+      expect(result.pendingConfirmation, isNull);
+      expect(result.finalResponse, contains('Clicked on'));
+      expect(result.actionBadge, equals('UI Automation'));
+      expect(result.steps.any((s) => s.status == 'success'), isTrue);
+      expect(nativeCalls.any((c) => c.method == 'clickUiElement'), isTrue);
+    });
+
+    test('Enforces Human-in-the-Loop Confirmation Gate for sensitive financial CLICK_UI', () async {
+      final result = await agentService.executeAgentLoop('click on Pay Now');
+      expect(result.hasAction, isTrue);
+      expect(result.pendingConfirmation, isNotNull);
+      expect(result.pendingConfirmation!.action.type, equals(ActionType.clickUi));
+      expect(result.actionBadge, equals('Safety Gate'));
+      expect(result.steps.any((s) => s.status == 'pending_approval'), isTrue);
+
+      // Verify native click was NOT dispatched
+      expect(nativeCalls.any((c) => c.method == 'clickUiElement'), isFalse);
+    });
+
+    test('Executes TYPE_TEXT and injects text into UI', () async {
+      final result = await agentService.executeAgentLoop('type "Flutter AI" into Search');
+      expect(result.hasAction, isTrue);
+      expect(result.finalResponse, contains('Injected text: **"Flutter AI"**'));
+      expect(result.actionBadge, equals('UI Automation'));
+      expect(nativeCalls.any((c) => c.method == 'typeUiText'), isTrue);
+    });
+
+    test('Executes SCROLL_SCREEN and scrolls active window', () async {
+      final result = await agentService.executeAgentLoop('scroll down');
+      expect(result.hasAction, isTrue);
+      expect(result.finalResponse, contains('Scrolled screen **down**'));
+      expect(result.actionBadge, equals('UI Automation'));
+      expect(nativeCalls.any((c) => c.method == 'scrollUi'), isTrue);
+    });
+
+    test('Executes MULTI_STEP_WORKFLOW with chained launch, wait, and search actions', () async {
+      final result = await agentService.executeAgentLoop('open youtube and search flutter tutorials');
+      expect(result.hasAction, isTrue);
+      expect(result.actionBadge, equals('Multi-Step UI'));
+      expect(result.finalResponse, contains('Multi-Step UI Automation Complete'));
+      expect(result.finalResponse, contains('YouTube'));
+      expect(result.finalResponse, contains('flutter tutorials'));
+
+      // Check all 3 execution steps
+      expect(result.steps.length, greaterThanOrEqualTo(4));
+      expect(result.steps.any((s) => s.stepName.contains('Step 1/3: Launched YouTube')), isTrue);
+      expect(result.steps.any((s) => s.stepName.contains('Step 2/3: UI ready')), isTrue);
+      expect(result.steps.any((s) => s.stepName.contains('Step 3/3: Searched "flutter tutorials"')), isTrue);
+
+      // Verify native calls
+      expect(nativeCalls.any((c) => c.method == 'launchAppByName'), isTrue);
+      expect(nativeCalls.any((c) => c.method == 'clickUiElement'), isTrue);
+      expect(nativeCalls.any((c) => c.method == 'typeUiText'), isTrue);
     });
   });
 }
