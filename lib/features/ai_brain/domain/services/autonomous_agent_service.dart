@@ -169,7 +169,7 @@ If the user request is an action that can be executed by a tool, you MUST respon
     }
     if (clean.endsWith('റെ') && clean.length > 2) {
       final base = clean.substring(0, clean.length - 2);
-      return '${base}ർ';
+      return '$baseർ';
     }
     if (clean.endsWith('യെ') && clean.length > 2) {
       return clean.substring(0, clean.length - 2);

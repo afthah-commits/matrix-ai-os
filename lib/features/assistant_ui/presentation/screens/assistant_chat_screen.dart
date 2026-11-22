@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:matrix_ai_os/core/presentation/widgets/matrix_logo_widget.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/action_dispatcher_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/autonomous_agent_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
@@ -11,7 +12,8 @@ import 'package:matrix_ai_os/features/assistant_ui/presentation/services/voice_a
 import 'package:matrix_ai_os/features/ocr_vision/domain/services/deep_document_finder_service.dart';
 
 /// Full-featured, privacy-first conversational Assistant Chat Screen
-/// with Voice UI (STT/TTS) and Action Confirmation Gates.
+/// with High-Contrast OLED Dark Layout, Voice UI (STT/TTS),
+/// Autonomous ReAct Tool Execution, and Action Confirmation Gates.
 class AssistantChatScreen extends ConsumerStatefulWidget {
   const AssistantChatScreen({super.key});
 
@@ -22,6 +24,14 @@ class AssistantChatScreen extends ConsumerStatefulWidget {
 class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+
+  static const primaryEmerald = Color(0xFF10B981);
+  static const neonCyan = Color(0xFF06B6D4);
+  static const accentViolet = Color(0xFF8B5CF6);
+  static const amberAlert = Color(0xFFF59E0B);
+  static const bgContainer = Color(0xFF090D16);
+  static const surfaceCard = Color(0xFF161B22);
+  static const borderColor = Color(0xFF30363D);
 
   static const _quickPrompts = [
     'Find My Passport',
@@ -37,6 +47,8 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
     'Read my screen',
     'Call +91 98765 43210',
     'Latest tech news',
+    'യൂട്യൂബ് തുറക്കൂ',
+    'രാഹുലിന് വാട്സാപ്പിൽ ഹായ് അയക്കൂ',
   ];
 
   @override
@@ -79,14 +91,6 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
   Widget build(BuildContext context) {
     final chatState = ref.watch(chatControllerProvider);
     final voiceService = ref.watch(voiceAssistantServiceProvider);
-
-    const primaryEmerald = Color(0xFF10B981);
-    const neonCyan = Color(0xFF06B6D4);
-    const accentViolet = Color(0xFF8B5CF6);
-    const amberAlert = Color(0xFFF59E0B);
-    const surfaceCard = Color(0xFF111827);
-    const bgContainer = Color(0xFF0B0F19);
-    const borderColor = Color(0xFF1F2937);
 
     // Auto-scroll on new message
     ref.listen<ChatState>(chatControllerProvider, (previous, next) {
@@ -132,15 +136,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
         elevation: 0,
         title: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: primaryEmerald.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: primaryEmerald.withValues(alpha: 0.4)),
-              ),
-              child: const Icon(Icons.auto_awesome, color: primaryEmerald, size: 18),
-            ),
+            const MatrixLogoWidget(size: 32),
             const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -183,9 +179,16 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
           ),
           IconButton(
             tooltip: 'Clear Chat',
-            icon: const Icon(Icons.delete_sweep_outlined, color: Colors.white60, size: 20),
+            icon: const Icon(Icons.delete_sweep_outlined, color: Colors.white70, size: 21),
             onPressed: () {
               ref.read(chatControllerProvider.notifier).clearChat();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Chat history cleared'),
+                  duration: Duration(seconds: 2),
+                  backgroundColor: Color(0xFF1F2937),
+                ),
+              );
             },
           ),
           IconButton(
@@ -200,27 +203,27 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
           // Live listening pulse indicator bar
           if (voiceService.isListening)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               color: amberAlert.withValues(alpha: 0.15),
               child: Row(
                 children: [
                   const SizedBox(
-                    width: 14,
-                    height: 14,
+                    width: 16,
+                    height: 16,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
                       color: amberAlert,
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       voiceService.lastRecognizedWords.isNotEmpty
                           ? 'Listening: "${voiceService.lastRecognizedWords}"'
-                          : 'Listening for your voice command...',
+                          : 'Listening for voice command (English & മലയാളം)...',
                       style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                         color: amberAlert,
                       ),
                       maxLines: 1,
@@ -229,71 +232,66 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                   ),
                   TextButton(
                     onPressed: () => voiceService.stopListening(),
-                    child: const Text('Stop', style: TextStyle(color: amberAlert, fontSize: 11)),
+                    child: const Text('Stop', style: TextStyle(color: amberAlert, fontSize: 12)),
                   ),
                 ],
               ),
             ),
 
-          // Messages List
+          // Messages List or Empty-State Hero
           Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: const EdgeInsets.only(left: 14, right: 14, top: 12, bottom: 20),
-              itemCount: chatState.messages.length + (chatState.isLoading ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (index == chatState.messages.length) {
-                  return _buildLoadingBubble(primaryEmerald, surfaceCard);
-                }
-                final msg = chatState.messages[index];
-                return _buildMessageBubble(
-                  msg,
-                  primaryEmerald,
-                  neonCyan,
-                  accentViolet,
-                  amberAlert,
-                  surfaceCard,
-                  borderColor,
-                );
-              },
-            ),
+            child: chatState.messages.isEmpty
+                ? _buildEmptyStateHero()
+                : ListView.builder(
+                    controller: _scrollController,
+                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: const EdgeInsets.only(left: 14, right: 14, top: 12, bottom: 20),
+                    itemCount: chatState.messages.length + (chatState.isLoading ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index == chatState.messages.length) {
+                        return _buildLoadingBubble();
+                      }
+                      final msg = chatState.messages[index];
+                      return _buildMessageBubble(msg);
+                    },
+                  ),
           ),
 
-          // Quick Prompt Suggestions
-          Container(
-            height: 38,
-            margin: const EdgeInsets.symmetric(vertical: 4),
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              itemCount: _quickPrompts.length,
-              separatorBuilder: (context, index) => const SizedBox(width: 8),
-              itemBuilder: (context, idx) {
-                final prompt = _quickPrompts[idx];
-                return ActionChip(
-                  label: Text(
-                    prompt,
-                    style: const TextStyle(fontSize: 11, color: Colors.white70),
-                  ),
-                  backgroundColor: surfaceCard,
-                  side: const BorderSide(color: borderColor),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                  onPressed: () => _handleSend(prompt),
-                );
-              },
+          // Quick Prompt Suggestions (shown when messages exist)
+          if (chatState.messages.isNotEmpty)
+            Container(
+              height: 38,
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                itemCount: _quickPrompts.length,
+                separatorBuilder: (context, index) => const SizedBox(width: 8),
+                itemBuilder: (context, idx) {
+                  final prompt = _quickPrompts[idx];
+                  return ActionChip(
+                    label: Text(
+                      prompt,
+                      style: const TextStyle(fontSize: 11, color: Color(0xFFE2E8F0)),
+                    ),
+                    backgroundColor: surfaceCard,
+                    side: const BorderSide(color: borderColor),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    onPressed: () => _handleSend(prompt),
+                  );
+                },
+              ),
             ),
-          ),
 
-          // Input Bar with Mic button
+          // Bottom Input Bar with Mic & Send buttons
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: const BoxDecoration(
               color: Color(0xFF0F172A),
-              border: Border(top: BorderSide(color: borderColor)),
+              border: Border(top: BorderSide(color: Color(0xFF1E293B))),
             ),
             child: SafeArea(
               child: Row(
@@ -314,71 +312,80 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                       }
                     },
                     child: Container(
-                      padding: const EdgeInsets.all(10),
+                      padding: const EdgeInsets.all(11),
                       decoration: BoxDecoration(
                         color: voiceService.isListening
-                            ? amberAlert.withValues(alpha: 0.2)
+                            ? amberAlert.withValues(alpha: 0.22)
                             : surfaceCard,
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: voiceService.isListening ? amberAlert : borderColor,
-                          width: voiceService.isListening ? 1.5 : 1.0,
+                          color: voiceService.isListening ? amberAlert : primaryEmerald.withValues(alpha: 0.6),
+                          width: voiceService.isListening ? 2.0 : 1.2,
                         ),
+                        boxShadow: voiceService.isListening
+                            ? [
+                                BoxShadow(
+                                  color: amberAlert.withValues(alpha: 0.35),
+                                  blurRadius: 10,
+                                  spreadRadius: 2,
+                                ),
+                              ]
+                            : null,
                       ),
                       child: Icon(
                         voiceService.isListening ? Icons.mic : Icons.mic_none,
                         color: voiceService.isListening ? amberAlert : primaryEmerald,
-                        size: 20,
+                        size: 22,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
 
                   Expanded(
                     child: TextField(
                       controller: _inputController,
-                      style: const TextStyle(fontSize: 13, color: Colors.white),
+                      style: const TextStyle(fontSize: 14, color: Color(0xFFF0F6FC)),
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _handleSend(),
                       decoration: InputDecoration(
-                        hintText: 'Ask Matrix or command (e.g. Call, WhatsApp, Read screen)...',
-                        hintStyle: const TextStyle(fontSize: 11, color: Colors.white38),
+                        hintText: 'Ask Matrix or command (EN / മലയാളം)...',
+                        hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF8B949E)),
                         filled: true,
                         fillColor: surfaceCard,
                         contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
+                          horizontal: 16,
+                          vertical: 12,
                         ),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(22),
                           borderSide: const BorderSide(color: borderColor),
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(22),
                           borderSide: const BorderSide(color: borderColor),
                         ),
                         focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(20),
-                          borderSide: const BorderSide(color: primaryEmerald),
+                          borderRadius: BorderRadius.circular(22),
+                          borderSide: const BorderSide(color: primaryEmerald, width: 1.5),
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
                   Container(
                     decoration: BoxDecoration(
                       color: primaryEmerald,
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: primaryEmerald.withValues(alpha: 0.3),
-                          blurRadius: 8,
+                          color: primaryEmerald.withValues(alpha: 0.4),
+                          blurRadius: 10,
                           offset: const Offset(0, 2),
                         ),
                       ],
                     ),
                     child: IconButton(
-                      icon: const Icon(Icons.send_rounded, color: Colors.black, size: 18),
+                      icon: const Icon(Icons.send_rounded, color: Colors.black, size: 20),
                       onPressed: chatState.isLoading ? null : () => _handleSend(),
                     ),
                   ),
@@ -391,28 +398,105 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
     );
   }
 
-  Widget _buildMessageBubble(
-    ChatMessage msg,
-    Color primaryEmerald,
-    Color neonCyan,
-    Color accentViolet,
-    Color amberAlert,
-    Color surfaceCard,
-    Color borderColor,
-  ) {
+  /// Empty-State Hero displaying the Custom Matrix AI OS Logo and Quick-Action Chips.
+  Widget _buildEmptyStateHero() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(height: 20),
+          const MatrixLogoWidget(size: 68, withGlow: true),
+          const SizedBox(height: 16),
+          const Text(
+            'Matrix AI OS',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.8,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Privacy-First • Autonomous On-Device AI Agent',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: neonCyan,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Security & Capability Badges
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildBadge(Icons.lock, 'AES-256 Storage', primaryEmerald),
+              _buildBadge(Icons.shield, 'Zero Cloud Leakage', neonCyan),
+              _buildBadge(Icons.translate, 'Bilingual (EN / ML)', accentViolet),
+              _buildBadge(Icons.hearing, 'Hey Matrix Wake-Word', const Color(0xFFF59E0B)),
+            ],
+          ),
+          const SizedBox(height: 28),
+
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Quick Commands & Prompts:',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.white.withValues(alpha: 0.7),
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Interactive prompt suggestion chips
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _quickPrompts.map((prompt) {
+              return ActionChip(
+                label: Text(
+                  prompt,
+                  style: const TextStyle(fontSize: 12, color: Color(0xFFE2E8F0)),
+                ),
+                backgroundColor: surfaceCard,
+                side: const BorderSide(color: borderColor),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                onPressed: () => _handleSend(prompt),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessageBubble(ChatMessage msg) {
     final timeStr = DateFormat('HH:mm').format(msg.timestamp);
 
+    // User Message Bubble (Right-aligned, High-Contrast Dark Emerald)
     if (msg.isUser) {
       return Align(
         alignment: Alignment.centerRight,
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 6),
           constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.8,
+            maxWidth: MediaQuery.of(context).size.width * 0.82,
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF065F46),
+            color: const Color(0xFF0F3D3E),
             borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(16),
               topRight: Radius.circular(16),
@@ -420,20 +504,33 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
               bottomRight: Radius.circular(4),
             ),
             border: Border.all(
-              color: primaryEmerald.withValues(alpha: 0.4),
+              color: primaryEmerald.withValues(alpha: 0.7),
+              width: 1.2,
             ),
+            boxShadow: [
+              BoxShadow(
+                color: primaryEmerald.withValues(alpha: 0.12),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
+              SelectableText(
                 msg.text,
-                style: const TextStyle(fontSize: 13, color: Colors.white, height: 1.4),
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white,
+                  height: 1.4,
+                ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Text(
                 timeStr,
-                style: const TextStyle(fontSize: 9, color: Colors.white54),
+                style: const TextStyle(fontSize: 10, color: Colors.white70),
               ),
             ],
           ),
@@ -441,15 +538,15 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
       );
     }
 
-    // AI Message bubble
+    // AI Assistant Message Bubble (Left-aligned, High-Contrast Slate Charcoal #161B22)
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 6),
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.9,
+          maxWidth: MediaQuery.of(context).size.width * 0.88,
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           color: surfaceCard,
           borderRadius: const BorderRadius.only(
@@ -459,15 +556,52 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
             bottomRight: Radius.circular(16),
           ),
           border: Border.all(
-            color: msg.pendingAction != null ? amberAlert.withValues(alpha: 0.5) : borderColor,
-            width: msg.pendingAction != null ? 1.5 : 1.0,
+            color: msg.pendingAction != null ? amberAlert.withValues(alpha: 0.7) : borderColor,
+            width: msg.pendingAction != null ? 1.5 : 1.2,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Transparent Privacy & Telemetry Badges
+            // HERO: AI Response text in bright 15sp high-contrast readable text
+            SelectableText(
+              msg.text,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.normal,
+                color: Color(0xFFF0F6FC),
+                height: 1.48,
+              ),
+            ),
+
+            // Autonomous ReAct Execution Steps Card
+            if (msg.executionSteps.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              _buildExecutionStepsCard(msg.executionSteps, primaryEmerald, neonCyan, amberAlert),
+            ],
+
+            // Matched Document / Passport / Receipt Card with One-Tap Open
+            if (msg.matchedDocuments.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              _buildMatchedDocumentsCard(msg.matchedDocuments, primaryEmerald, neonCyan),
+            ],
+
+            // Action Confirmation Card for Sensitive Actions
+            if (msg.pendingAction != null) ...[
+              const SizedBox(height: 12),
+              _buildActionConfirmationCard(msg.pendingAction!, primaryEmerald, amberAlert),
+            ],
+
+            // Metadata footer pills (placed below the message so text is always the hero)
             if (msg.hasBadges) ...[
+              const SizedBox(height: 10),
               Wrap(
                 spacing: 6,
                 runSpacing: 4,
@@ -475,7 +609,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                   if (msg.pendingAction != null)
                     _buildBadge(
                       Icons.shield_outlined,
-                      'Human Confirmation Required',
+                      'Human Approval Required',
                       amberAlert,
                     ),
                   if (msg.intent != null)
@@ -522,36 +656,6 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                     ),
                 ],
               ),
-              const SizedBox(height: 8),
-              const Divider(color: Colors.white10, height: 1),
-              const SizedBox(height: 8),
-            ],
-
-            SelectableText(
-              msg.text,
-              style: const TextStyle(
-                fontSize: 13,
-                color: Color(0xFFF3F4F6),
-                height: 1.45,
-              ),
-            ),
-
-            // Autonomous ReAct Execution Steps Card
-            if (msg.executionSteps.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              _buildExecutionStepsCard(msg.executionSteps, primaryEmerald, neonCyan, amberAlert),
-            ],
-
-            // Matched Document / Passport / Receipt Card with One-Tap Open
-            if (msg.matchedDocuments.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              _buildMatchedDocumentsCard(msg.matchedDocuments, primaryEmerald, neonCyan),
-            ],
-
-            // Action Confirmation Card for Sensitive Actions
-            if (msg.pendingAction != null) ...[
-              const SizedBox(height: 12),
-              _buildActionConfirmationCard(msg.pendingAction!, primaryEmerald, amberAlert),
             ],
 
             const SizedBox(height: 6),
@@ -559,7 +663,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
               alignment: Alignment.bottomRight,
               child: Text(
                 timeStr,
-                style: const TextStyle(fontSize: 9, color: Colors.white38),
+                style: const TextStyle(fontSize: 10, color: Color(0xFF8B949E)),
               ),
             ),
           ],
@@ -620,7 +724,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                     child: Text(
                       doc.title,
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
@@ -652,8 +756,8 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                 Text(
                   doc.extractedSummary,
                   style: const TextStyle(
-                    fontSize: 11,
-                    color: Colors.white70,
+                    fontSize: 12,
+                    color: Color(0xFFE2E8F0),
                     height: 1.35,
                   ),
                   maxLines: 3,
@@ -679,7 +783,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                       ),
                       child: Text(
                         '${e.key}: ${e.value}',
-                        style: const TextStyle(fontSize: 10, color: Colors.white60),
+                        style: const TextStyle(fontSize: 10, color: Color(0xFFCBD5E1)),
                       ),
                     );
                   }).toList(),
@@ -692,10 +796,10 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () => controller.openDocumentFile(doc.fileUri, mimeType: doc.mimeType),
-                    icon: const Icon(Icons.open_in_new, size: 14),
+                    icon: const Icon(Icons.open_in_new, size: 15),
                     label: const Text(
                       'Open File on Device',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: badgeColor,
@@ -728,7 +832,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF0F172A),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: amberAlert.withValues(alpha: 0.4)),
+        border: Border.all(color: amberAlert.withValues(alpha: 0.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -749,7 +853,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                 child: Text(
                   pending.action.description,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
@@ -867,7 +971,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
                       step.stepName,
                       style: TextStyle(
                         fontFamily: 'monospace',
-                        fontSize: 10.5,
+                        fontSize: 11,
                         color: step.status == 'failed'
                             ? Colors.red.shade300
                             : const Color(0xFFE2E8F0),
@@ -886,7 +990,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
 
   Widget _buildBadge(IconData icon, String label, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(6),
@@ -895,12 +999,12 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 10, color: color),
+          Icon(icon, size: 11, color: color),
           const SizedBox(width: 4),
           Text(
             label,
             style: TextStyle(
-              fontSize: 9,
+              fontSize: 10,
               fontWeight: FontWeight.w600,
               color: color,
             ),
@@ -910,7 +1014,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
     );
   }
 
-  Widget _buildLoadingBubble(Color primaryEmerald, Color surfaceCard) {
+  Widget _buildLoadingBubble() {
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
@@ -935,7 +1039,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
             const SizedBox(width: 10),
             const Text(
               'Matrix AI is reasoning (PII check & context assembly)...',
-              style: TextStyle(fontSize: 11, color: Colors.white70),
+              style: TextStyle(fontSize: 12, color: Color(0xFFE2E8F0)),
             ),
           ],
         ),

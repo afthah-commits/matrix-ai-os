@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:matrix_ai_os/core/constants/app_constants.dart';
+import 'package:matrix_ai_os/core/presentation/widgets/matrix_logo_widget.dart';
 import 'package:matrix_ai_os/core/utils/formatters.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/proactive_context_engine.dart';
 import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
@@ -74,15 +75,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
         elevation: 0,
         title: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: primaryEmerald.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: primaryEmerald.withValues(alpha: 0.4)),
-              ),
-              child: const Icon(Icons.security, color: primaryEmerald, size: 20),
-            ),
+            const MatrixLogoWidget(size: 32),
             const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,

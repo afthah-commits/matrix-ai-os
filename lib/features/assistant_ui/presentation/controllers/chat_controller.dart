@@ -111,23 +111,8 @@ class ChatController extends StateNotifier<ChatState> {
         _actionDispatcher = actionDispatcher,
         _voiceService = voiceService,
         super(
-          ChatState(
-            messages: [
-              ChatMessage(
-                id: 'welcome',
-                text: 'Greetings. I am **Matrix AI OS**.\n\n'
-                    '• **Zero Data Leakage:** All your data remains AES-256 encrypted locally.\n'
-                    '• **Local PII Masking:** Account numbers, phone numbers, and IDs are redacted before any cloud query.\n'
-                    '• **Action Execution:** Voice/chat actions for calls, WhatsApp, screen reading with Human-in-the-Loop gates.\n'
-                    '• **Live Web Search:** Real-time news, scores, and general knowledge via DuckDuckGo.\n'
-                    '• **Air-Gapped Mode:** Toggle 100% offline local processing anytime in Settings.\n\n'
-                    'How may I assist you today?',
-                isUser: false,
-                timestamp: DateTime.now(),
-                isOfflineEngine: true,
-                providerUsed: 'Matrix Core',
-              ),
-            ],
+          const ChatState(
+            messages: [],
             isLoading: false,
             currentProvider: AiProvider.gemini,
             isAirGapped: false,
@@ -387,16 +372,7 @@ class ChatController extends StateNotifier<ChatState> {
   void clearChat() {
     state = state.copyWith(
       clearError: true,
-      messages: List<ChatMessage>.unmodifiable([
-        ChatMessage(
-          id: 'cleared',
-          text: 'Chat history cleared. All local encrypted memories remain secure in ObjectBox.',
-          isUser: false,
-          timestamp: DateTime.now(),
-          isOfflineEngine: true,
-          providerUsed: 'Matrix Core',
-        ),
-      ]),
+      messages: const [],
     );
   }
 }
