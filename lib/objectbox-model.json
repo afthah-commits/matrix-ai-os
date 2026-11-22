@@ -93,10 +93,60 @@
         }
       ],
       "relations": []
+    },
+    {
+      "id": "3:332690818474981974",
+      "lastPropertyId": "7:340834755603717038",
+      "name": "KnowledgeEdge",
+      "properties": [
+        {
+          "id": "1:6907818654979981910",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:506171199847479342",
+          "name": "sourceEntity",
+          "indexId": "5:3357870629017585933",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "3:8401960617343577455",
+          "name": "relationType",
+          "type": 9
+        },
+        {
+          "id": "4:943284280441303664",
+          "name": "targetEntity",
+          "indexId": "6:831917751425708500",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "5:6093900868029180303",
+          "name": "weight",
+          "type": 8
+        },
+        {
+          "id": "6:1681857086917989379",
+          "name": "encryptedContext",
+          "type": 9
+        },
+        {
+          "id": "7:340834755603717038",
+          "name": "lastUpdated",
+          "indexId": "7:2237618284237545553",
+          "type": 10,
+          "flags": 8
+        }
+      ],
+      "relations": []
     }
   ],
-  "lastEntityId": "2:2658421642093508179",
-  "lastIndexId": "4:6257583940295634206",
+  "lastEntityId": "3:332690818474981974",
+  "lastIndexId": "7:2237618284237545553",
   "lastRelationId": "0:0",
   "lastSequenceId": "0:0",
   "modelVersion": 5,

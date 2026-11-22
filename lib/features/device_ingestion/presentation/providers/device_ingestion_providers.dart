@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:matrix_ai_os/core/database/database_providers.dart';
 import 'package:matrix_ai_os/features/device_ingestion/data/datasources/device_stats_native_datasource.dart';
 import 'package:matrix_ai_os/features/device_ingestion/domain/services/call_log_ingestion_service.dart';
@@ -32,6 +33,7 @@ class DevicePermissionsState {
   final bool usageStatsGranted;
   final bool notificationListenerGranted;
   final bool callLogGranted;
+  final bool galleryPermissionGranted;
   final bool isSyncing;
   final String? lastSyncResult;
 
@@ -39,6 +41,7 @@ class DevicePermissionsState {
     this.usageStatsGranted = false,
     this.notificationListenerGranted = false,
     this.callLogGranted = false,
+    this.galleryPermissionGranted = false,
     this.isSyncing = false,
     this.lastSyncResult,
   });
@@ -47,6 +50,7 @@ class DevicePermissionsState {
     bool? usageStatsGranted,
     bool? notificationListenerGranted,
     bool? callLogGranted,
+    bool? galleryPermissionGranted,
     bool? isSyncing,
     String? lastSyncResult,
   }) {
@@ -54,6 +58,7 @@ class DevicePermissionsState {
       usageStatsGranted: usageStatsGranted ?? this.usageStatsGranted,
       notificationListenerGranted: notificationListenerGranted ?? this.notificationListenerGranted,
       callLogGranted: callLogGranted ?? this.callLogGranted,
+      galleryPermissionGranted: galleryPermissionGranted ?? this.galleryPermissionGranted,
       isSyncing: isSyncing ?? this.isSyncing,
       lastSyncResult: lastSyncResult ?? this.lastSyncResult,
     );
@@ -77,14 +82,21 @@ class DeviceIngestionController extends StateNotifier<DevicePermissionsState> {
         _notifHandler = notifHandler,
         super(const DevicePermissionsState());
 
-  /// Checks live permission status for Usage Stats, Notification Listener, and Call Logs.
+  /// Checks live permission status for Usage Stats, Notification Listener, Call Logs, and Gallery.
   Future<void> checkPermissions() async {
     try {
       final perms = await _dataSource.checkPermissions();
+      bool galleryGranted = false;
+      try {
+        final pmState = await PhotoManager.requestPermissionExtend();
+        galleryGranted = pmState.hasAccess;
+      } catch (_) {}
+
       state = state.copyWith(
         usageStatsGranted: perms['usageStatsGranted'] ?? false,
         notificationListenerGranted: perms['notificationListenerGranted'] ?? false,
         callLogGranted: perms['callLogGranted'] ?? false,
+        galleryPermissionGranted: galleryGranted,
       );
     } catch (_) {}
   }
@@ -93,6 +105,14 @@ class DeviceIngestionController extends StateNotifier<DevicePermissionsState> {
   Future<void> requestCallLogPermission() async {
     final status = await Permission.phone.request();
     state = state.copyWith(callLogGranted: status.isGranted);
+  }
+
+  /// Requests Gallery/Photo access permission via photo_manager.
+  Future<void> requestGalleryPermission() async {
+    try {
+      final res = await PhotoManager.requestPermissionExtend();
+      state = state.copyWith(galleryPermissionGranted: res.hasAccess);
+    } catch (_) {}
   }
 
   /// Opens Android Settings for Usage Access.
@@ -109,16 +129,12 @@ class DeviceIngestionController extends StateNotifier<DevicePermissionsState> {
   Future<Map<String, dynamic>> syncAllDeviceData() async {
     state = state.copyWith(isSyncing: true, lastSyncResult: null);
     try {
-      // 1. Sync screen time
       final usageSummary = await _usageService.syncTodayUsage();
-
-      // 2. Sync call logs
       final callsCount = await _callLogService.syncRecentCalls(limit: 50);
-
-      // 3. Drain buffered notifications
       final notifCount = await _notifHandler.drainBufferedNotifications();
 
-      final summaryMessage = 'Sync Complete: ${usageSummary != null ? "${usageSummary.totalScreenTimeMinutes}m usage, " : ""}$callsCount calls, $notifCount transactions/alerts';
+      final summaryMessage =
+          'Sync Complete: ${usageSummary != null ? "${usageSummary.totalScreenTimeMinutes}m usage, " : ""}$callsCount calls, $notifCount transactions/alerts';
 
       state = state.copyWith(
         isSyncing: false,

@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:matrix_ai_os/core/constants/app_constants.dart';
 import 'package:matrix_ai_os/core/utils/formatters.dart';
+import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/controllers/dashboard_controller.dart';
 import 'package:matrix_ai_os/features/device_ingestion/presentation/providers/device_ingestion_providers.dart';
+import 'package:matrix_ai_os/features/ocr_vision/presentation/providers/ocr_vision_providers.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -68,19 +70,19 @@ class DashboardScreen extends ConsumerWidget {
             margin: const EdgeInsets.only(right: 16),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: neonCyan.withValues(alpha: 0.15),
+              color: accentViolet.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: neonCyan.withValues(alpha: 0.4)),
+              border: Border.all(color: accentViolet.withValues(alpha: 0.4)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: const [
-                Icon(Icons.sensors, color: neonCyan, size: 14),
+                Icon(Icons.hub_outlined, color: accentViolet, size: 14),
                 SizedBox(width: 4),
                 Text(
-                  'PHASE 2.1',
+                  'PHASE 3.1',
                   style: TextStyle(
-                    color: neonCyan,
+                    color: accentViolet,
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 0.5,
@@ -111,7 +113,7 @@ class DashboardScreen extends ConsumerWidget {
                     _buildSystemBanner(primaryEmerald),
                     const SizedBox(height: 16),
 
-                    // Core Metrics Grid
+                    // Row 1: Encryption & Storage Size
                     Row(
                       children: [
                         Expanded(
@@ -142,6 +144,7 @@ class DashboardScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 12),
 
+                    // Row 2: Memory Nodes & Daily Summaries
                     Row(
                       children: [
                         Expanded(
@@ -171,6 +174,36 @@ class DashboardScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 12),
 
+                    // Row 3: OCR Docs & Knowledge Graph Links (Phase 3 Core)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildMetricCard(
+                            title: 'INDEXED OCR DOCS',
+                            value: state.ocrDocCount.toString(),
+                            subtitle: 'Immune from pruning',
+                            icon: Icons.document_scanner_rounded,
+                            accentColor: const Color(0xFFC084FC),
+                            surfaceColor: surfaceCardColor,
+                            borderColor: borderColor,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildMetricCard(
+                            title: 'KNOWLEDGE GRAPH',
+                            value: state.knowledgeEdgeCount.toString(),
+                            subtitle: 'Semantic connections',
+                            icon: Icons.hub_rounded,
+                            accentColor: const Color(0xFF34D399),
+                            surfaceColor: surfaceCardColor,
+                            borderColor: borderColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
                     // Category Breakdown Chips
                     _buildCategoryBreakdown(state, surfaceCardColor, borderColor),
                     const SizedBox(height: 20),
@@ -183,12 +216,13 @@ class DashboardScreen extends ConsumerWidget {
                       borderColor: borderColor,
                       emerald: primaryEmerald,
                       cyan: neonCyan,
+                      violet: accentViolet,
                     ),
                     const SizedBox(height: 20),
 
                     // Ingestion & Action Controls
                     const Text(
-                      'DEVICE INGESTION & PIPELINE CONTROLS',
+                      'AI VISION & PIPELINE CONTROLS',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
@@ -198,48 +232,67 @@ class DashboardScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 10),
 
-                    // Sync Device Data Now Button (Primary Phase 2 Trigger)
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: neonCyan,
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          elevation: 2,
-                        ),
-                        onPressed: state.isLoading || permState.isSyncing
-                            ? null
-                            : () async {
-                                await controller.syncDeviceData(
-                                  usageService: ref.read(usageIngestionServiceProvider),
-                                  callLogService: ref.read(callLogIngestionServiceProvider),
-                                  notifHandler: ref.read(notificationIngestionHandlerProvider),
-                                );
-                                await permController.checkPermissions();
-                              },
-                        icon: state.isLoading || permState.isSyncing
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.black,
-                                ),
-                              )
-                            : const Icon(Icons.sync_rounded, size: 20),
-                        label: const Text(
-                          'Sync Device Data Now',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            letterSpacing: 0.5,
+                    // Phase 3 Ingestion Action: Index Gallery OCR
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: accentViolet,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              elevation: 2,
+                            ),
+                            onPressed: state.isLoading || permState.isSyncing
+                                ? null
+                                : () async {
+                                    await controller.indexGalleryOcr(
+                                      ocrService: ref.read(galleryOcrServiceProvider),
+                                      kgService: ref.read(knowledgeGraphServiceProvider),
+                                    );
+                                    await permController.checkPermissions();
+                                  },
+                            icon: const Icon(Icons.document_scanner_rounded, size: 18),
+                            label: const Text(
+                              'Index Gallery OCR',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
                           ),
                         ),
-                      ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: neonCyan,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              elevation: 2,
+                            ),
+                            onPressed: state.isLoading || permState.isSyncing
+                                ? null
+                                : () async {
+                                    await controller.syncDeviceData(
+                                      usageService: ref.read(usageIngestionServiceProvider),
+                                      callLogService: ref.read(callLogIngestionServiceProvider),
+                                      notifHandler: ref.read(notificationIngestionHandlerProvider),
+                                      kgService: ref.read(knowledgeGraphServiceProvider),
+                                    );
+                                    await permController.checkPermissions();
+                                  },
+                            icon: const Icon(Icons.sync_rounded, size: 18),
+                            label: const Text(
+                              'Sync Sensors Now',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 10),
 
@@ -257,7 +310,9 @@ class DashboardScreen extends ConsumerWidget {
                             ),
                             onPressed: state.isLoading
                                 ? null
-                                : () => controller.testWriteAndEncrypt(),
+                                : () => controller.testWriteAndEncrypt(
+                                      kgService: ref.read(knowledgeGraphServiceProvider),
+                                    ),
                             icon: const Icon(Icons.enhanced_encryption, size: 16),
                             label: const Text(
                               'Test Write & Encrypt',
@@ -332,7 +387,7 @@ class DashboardScreen extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: const [
                 Text(
-                  'Zero Cloud Leakage Guarantee',
+                  'Zero Image Duplication & Zero Leakage',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
@@ -341,7 +396,7 @@ class DashboardScreen extends ConsumerWidget {
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'Passive signals (Screen Time, Calls, Bank Alerts) encrypted on-device via AES-256-GCM.',
+                  'Gallery OCR extracts text in-memory. Only metadata is encrypted & linked to Knowledge Graph.',
                   style: TextStyle(color: Colors.white60, fontSize: 11),
                 ),
               ],
@@ -358,7 +413,7 @@ class DashboardScreen extends ConsumerWidget {
     Color borderColor,
   ) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: surfaceColor,
         borderRadius: BorderRadius.circular(10),
@@ -370,6 +425,7 @@ class DashboardScreen extends ConsumerWidget {
           _buildCategoryPill('Screen Time', state.screenTimeCount, const Color(0xFF06B6D4)),
           _buildCategoryPill('Call Logs', state.callLogCount, const Color(0xFF8B5CF6)),
           _buildCategoryPill('Transactions', state.transactionCount, const Color(0xFF10B981)),
+          _buildCategoryPill('OCR Docs', state.ocrDocCount, const Color(0xFFC084FC)),
           _buildCategoryPill('Alerts/Notes', state.noteCount, const Color(0xFFF59E0B)),
         ],
       ),
@@ -383,14 +439,14 @@ class DashboardScreen extends ConsumerWidget {
           count.toString(),
           style: TextStyle(
             color: color,
-            fontSize: 16,
+            fontSize: 15,
             fontWeight: FontWeight.bold,
           ),
         ),
         const SizedBox(height: 2),
         Text(
           label,
-          style: TextStyle(color: Colors.grey.shade400, fontSize: 10),
+          style: TextStyle(color: Colors.grey.shade400, fontSize: 9.5),
         ),
       ],
     );
@@ -403,6 +459,7 @@ class DashboardScreen extends ConsumerWidget {
     required Color borderColor,
     required Color emerald,
     required Color cyan,
+    required Color violet,
   }) {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -468,6 +525,16 @@ class DashboardScreen extends ConsumerWidget {
             title: 'Call Logs (Telephony Stream)',
             isGranted: permState.callLogGranted,
             onAction: () => permController.requestCallLogPermission(),
+            actionLabel: 'Grant',
+            emerald: emerald,
+          ),
+          const SizedBox(height: 8),
+
+          // 4. Gallery Permission (Phase 3 Vision OCR)
+          _buildPermissionRow(
+            title: 'Gallery / Storage (Visual OCR)',
+            isGranted: permState.galleryPermissionGranted,
+            onAction: () => permController.requestGalleryPermission(),
             actionLabel: 'Grant',
             emerald: emerald,
           ),

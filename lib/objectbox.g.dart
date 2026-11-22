@@ -15,6 +15,7 @@ import 'package:objectbox/objectbox.dart' as obx;
 import 'package:objectbox_flutter_libs/objectbox_flutter_libs.dart';
 
 import 'core/database/models/daily_summary.dart';
+import 'core/database/models/knowledge_edge.dart';
 import 'core/database/models/memory_node.dart';
 
 export 'package:objectbox/objectbox.dart'; // so that callers only have to import this file
@@ -122,6 +123,61 @@ final _entities = <obx_int.ModelEntity>[
     relations: <obx_int.ModelRelation>[],
     backlinks: <obx_int.ModelBacklink>[],
   ),
+  obx_int.ModelEntity(
+    id: const obx_int.IdUid(3, 332690818474981974),
+    name: 'KnowledgeEdge',
+    lastPropertyId: const obx_int.IdUid(7, 340834755603717038),
+    flags: 0,
+    properties: <obx_int.ModelProperty>[
+      obx_int.ModelProperty(
+        id: const obx_int.IdUid(1, 6907818654979981910),
+        name: 'id',
+        type: 6,
+        flags: 1,
+      ),
+      obx_int.ModelProperty(
+        id: const obx_int.IdUid(2, 506171199847479342),
+        name: 'sourceEntity',
+        type: 9,
+        flags: 2048,
+        indexId: const obx_int.IdUid(5, 3357870629017585933),
+      ),
+      obx_int.ModelProperty(
+        id: const obx_int.IdUid(3, 8401960617343577455),
+        name: 'relationType',
+        type: 9,
+        flags: 0,
+      ),
+      obx_int.ModelProperty(
+        id: const obx_int.IdUid(4, 943284280441303664),
+        name: 'targetEntity',
+        type: 9,
+        flags: 2048,
+        indexId: const obx_int.IdUid(6, 831917751425708500),
+      ),
+      obx_int.ModelProperty(
+        id: const obx_int.IdUid(5, 6093900868029180303),
+        name: 'weight',
+        type: 8,
+        flags: 0,
+      ),
+      obx_int.ModelProperty(
+        id: const obx_int.IdUid(6, 1681857086917989379),
+        name: 'encryptedContext',
+        type: 9,
+        flags: 0,
+      ),
+      obx_int.ModelProperty(
+        id: const obx_int.IdUid(7, 340834755603717038),
+        name: 'lastUpdated',
+        type: 10,
+        flags: 8,
+        indexId: const obx_int.IdUid(7, 2237618284237545553),
+      ),
+    ],
+    relations: <obx_int.ModelRelation>[],
+    backlinks: <obx_int.ModelBacklink>[],
+  ),
 ];
 
 /// Shortcut for [obx.Store.new] that passes [getObjectBoxModel] and for Flutter
@@ -167,8 +223,8 @@ obx_int.ModelDefinition getObjectBoxModel() {
     // Typically, this is done with `dart run build_runner build`.
     generatorVersion: obx_int.GeneratorVersion.v2025_12_16,
     entities: _entities,
-    lastEntityId: const obx_int.IdUid(2, 2658421642093508179),
-    lastIndexId: const obx_int.IdUid(4, 6257583940295634206),
+    lastEntityId: const obx_int.IdUid(3, 332690818474981974),
+    lastIndexId: const obx_int.IdUid(7, 2237618284237545553),
     lastRelationId: const obx_int.IdUid(0, 0),
     lastSequenceId: const obx_int.IdUid(0, 0),
     retiredEntityUids: const [],
@@ -313,6 +369,73 @@ obx_int.ModelDefinition getObjectBoxModel() {
         return object;
       },
     ),
+    KnowledgeEdge: obx_int.EntityDefinition<KnowledgeEdge>(
+      model: _entities[2],
+      toOneRelations: (KnowledgeEdge object) => [],
+      toManyRelations: (KnowledgeEdge object) => {},
+      getId: (KnowledgeEdge object) => object.id,
+      setId: (KnowledgeEdge object, int id) {
+        object.id = id;
+      },
+      objectToFB: (KnowledgeEdge object, fb.Builder fbb) {
+        final sourceEntityOffset = fbb.writeString(object.sourceEntity);
+        final relationTypeOffset = fbb.writeString(object.relationType);
+        final targetEntityOffset = fbb.writeString(object.targetEntity);
+        final encryptedContextOffset = fbb.writeString(object.encryptedContext);
+        fbb.startTable(8);
+        fbb.addInt64(0, object.id);
+        fbb.addOffset(1, sourceEntityOffset);
+        fbb.addOffset(2, relationTypeOffset);
+        fbb.addOffset(3, targetEntityOffset);
+        fbb.addFloat64(4, object.weight);
+        fbb.addOffset(5, encryptedContextOffset);
+        fbb.addInt64(6, object.lastUpdated.millisecondsSinceEpoch);
+        fbb.finish(fbb.endTable());
+        return object.id;
+      },
+      objectFromFB: (obx.Store store, ByteData fbData) {
+        final buffer = fb.BufferContext(fbData);
+        final rootOffset = buffer.derefObject(0);
+        final idParam = const fb.Int64Reader().vTableGet(
+          buffer,
+          rootOffset,
+          4,
+          0,
+        );
+        final sourceEntityParam = const fb.StringReader(
+          asciiOptimization: true,
+        ).vTableGet(buffer, rootOffset, 6, '');
+        final relationTypeParam = const fb.StringReader(
+          asciiOptimization: true,
+        ).vTableGet(buffer, rootOffset, 8, '');
+        final targetEntityParam = const fb.StringReader(
+          asciiOptimization: true,
+        ).vTableGet(buffer, rootOffset, 10, '');
+        final weightParam = const fb.Float64Reader().vTableGet(
+          buffer,
+          rootOffset,
+          12,
+          0,
+        );
+        final encryptedContextParam = const fb.StringReader(
+          asciiOptimization: true,
+        ).vTableGet(buffer, rootOffset, 14, '');
+        final lastUpdatedParam = DateTime.fromMillisecondsSinceEpoch(
+          const fb.Int64Reader().vTableGet(buffer, rootOffset, 16, 0),
+        );
+        final object = KnowledgeEdge(
+          id: idParam,
+          sourceEntity: sourceEntityParam,
+          relationType: relationTypeParam,
+          targetEntity: targetEntityParam,
+          weight: weightParam,
+          encryptedContext: encryptedContextParam,
+          lastUpdated: lastUpdatedParam,
+        );
+
+        return object;
+      },
+    ),
   };
 
   return obx_int.ModelDefinition(model, bindings);
@@ -386,5 +509,43 @@ class MemoryNode_ {
   /// See [MemoryNode.isPinned].
   static final isPinned = obx.QueryBooleanProperty<MemoryNode>(
     _entities[1].properties[6],
+  );
+}
+
+/// [KnowledgeEdge] entity fields to define ObjectBox queries.
+class KnowledgeEdge_ {
+  /// See [KnowledgeEdge.id].
+  static final id = obx.QueryIntegerProperty<KnowledgeEdge>(
+    _entities[2].properties[0],
+  );
+
+  /// See [KnowledgeEdge.sourceEntity].
+  static final sourceEntity = obx.QueryStringProperty<KnowledgeEdge>(
+    _entities[2].properties[1],
+  );
+
+  /// See [KnowledgeEdge.relationType].
+  static final relationType = obx.QueryStringProperty<KnowledgeEdge>(
+    _entities[2].properties[2],
+  );
+
+  /// See [KnowledgeEdge.targetEntity].
+  static final targetEntity = obx.QueryStringProperty<KnowledgeEdge>(
+    _entities[2].properties[3],
+  );
+
+  /// See [KnowledgeEdge.weight].
+  static final weight = obx.QueryDoubleProperty<KnowledgeEdge>(
+    _entities[2].properties[4],
+  );
+
+  /// See [KnowledgeEdge.encryptedContext].
+  static final encryptedContext = obx.QueryStringProperty<KnowledgeEdge>(
+    _entities[2].properties[5],
+  );
+
+  /// See [KnowledgeEdge.lastUpdated].
+  static final lastUpdated = obx.QueryDateProperty<KnowledgeEdge>(
+    _entities[2].properties[6],
   );
 }

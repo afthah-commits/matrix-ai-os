@@ -3,9 +3,11 @@ import 'package:matrix_ai_os/core/constants/app_constants.dart';
 import 'package:matrix_ai_os/core/database/database_providers.dart';
 import 'package:matrix_ai_os/core/database/local_database_service.dart';
 import 'package:matrix_ai_os/core/database/storage_pruner_service.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/services/knowledge_graph_service.dart';
 import 'package:matrix_ai_os/features/device_ingestion/domain/services/call_log_ingestion_service.dart';
 import 'package:matrix_ai_os/features/device_ingestion/domain/services/notification_ingestion_handler.dart';
 import 'package:matrix_ai_os/features/device_ingestion/domain/services/usage_ingestion_service.dart';
+import 'package:matrix_ai_os/features/ocr_vision/domain/services/gallery_ocr_service.dart';
 
 class DashboardState {
   final bool isInitialized;
@@ -17,6 +19,8 @@ class DashboardState {
   final int screenTimeCount;
   final int callLogCount;
   final int transactionCount;
+  final int ocrDocCount;
+  final int knowledgeEdgeCount;
   final int noteCount;
   final String? lastTestRawCiphertext;
   final String? lastTestDecryptedText;
@@ -33,6 +37,8 @@ class DashboardState {
     this.screenTimeCount = 0,
     this.callLogCount = 0,
     this.transactionCount = 0,
+    this.ocrDocCount = 0,
+    this.knowledgeEdgeCount = 0,
     this.noteCount = 0,
     this.lastTestRawCiphertext,
     this.lastTestDecryptedText,
@@ -50,6 +56,8 @@ class DashboardState {
     int? screenTimeCount,
     int? callLogCount,
     int? transactionCount,
+    int? ocrDocCount,
+    int? knowledgeEdgeCount,
     int? noteCount,
     String? lastTestRawCiphertext,
     String? lastTestDecryptedText,
@@ -66,6 +74,8 @@ class DashboardState {
       screenTimeCount: screenTimeCount ?? this.screenTimeCount,
       callLogCount: callLogCount ?? this.callLogCount,
       transactionCount: transactionCount ?? this.transactionCount,
+      ocrDocCount: ocrDocCount ?? this.ocrDocCount,
+      knowledgeEdgeCount: knowledgeEdgeCount ?? this.knowledgeEdgeCount,
       noteCount: noteCount ?? this.noteCount,
       lastTestRawCiphertext: lastTestRawCiphertext ?? this.lastTestRawCiphertext,
       lastTestDecryptedText: lastTestDecryptedText ?? this.lastTestDecryptedText,
@@ -100,12 +110,15 @@ class DashboardController extends StateNotifier<DashboardState> {
       final screenTime = _dbService.getCategoryCount(MemoryCategory.screenTime);
       final callLogs = _dbService.getCategoryCount(MemoryCategory.callLog);
       final transactions = _dbService.getCategoryCount(MemoryCategory.transaction);
+      final ocrDocs = _dbService.getCategoryCount(MemoryCategory.ocrDoc);
+      final edges = _dbService.getKnowledgeEdgeCount();
       final notes = _dbService.getCategoryCount(MemoryCategory.note);
 
       final logs = List<String>.from(state.operationLogs)
         ..add('[SYSTEM] Initialized ObjectBox NoSQL Engine.')
         ..add('[SECURITY] Verified 256-bit Key in Android Keystore.')
-        ..add('[SECURITY] AES-256-GCM zero-leakage cipher active.');
+        ..add('[SECURITY] AES-256-GCM zero-leakage cipher active.')
+        ..add('[GRAPH] On-device Personal Knowledge Graph online.');
 
       state = state.copyWith(
         isInitialized: true,
@@ -117,6 +130,8 @@ class DashboardController extends StateNotifier<DashboardState> {
         screenTimeCount: screenTime,
         callLogCount: callLogs,
         transactionCount: transactions,
+        ocrDocCount: ocrDocs,
+        knowledgeEdgeCount: edges,
         noteCount: notes,
         operationLogs: logs,
       );
@@ -129,18 +144,19 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
   }
 
-  /// Inserts a sample encrypted memory node, retrieves it from ObjectBox,
-  /// and verifies that raw disk data is ciphertext while decrypted matches original.
-  Future<void> testWriteAndEncrypt() async {
+  /// Inserts a sample encrypted memory node, reinforces knowledge graph edges,
+  /// and verifies that raw disk data is ciphertext.
+  Future<void> testWriteAndEncrypt({KnowledgeGraphService? kgService}) async {
     if (!state.isInitialized) return;
 
     state = state.copyWith(isLoading: true);
     try {
       final sampleNumber = state.totalMemoryNodes + 1;
+      final merchant = 'Vendor_${sampleNumber % 5 + 1}';
       final plaintext =
-          'Confidential memo #$sampleNumber: Financial transfer of \$${(sampleNumber * 12.5).toStringAsFixed(2)} confirmed.';
+          'Confidential memo #$sampleNumber: Financial payment of \$${(sampleNumber * 14.5).toStringAsFixed(2)} to $merchant.';
       final metadata =
-          '{"amount": ${(sampleNumber * 12.5).toStringAsFixed(2)}, "type": "payment", "sampleIndex": $sampleNumber}';
+          '{"amount": ${(sampleNumber * 14.5).toStringAsFixed(2)}, "merchant": "$merchant", "txType": "debit", "accountRef": "**${3000 + sampleNumber}"}';
 
       // 1. Insert encrypted node
       final storedNode = await _dbService.insertMemoryNode(
@@ -150,19 +166,26 @@ class DashboardController extends StateNotifier<DashboardState> {
         timestamp: DateTime.now(),
       );
 
-      // 2. Retrieve raw stored node (proving on-disk content is encrypted)
+      // 2. Build Knowledge Graph connections
+      if (kgService != null) {
+        await kgService.buildConnectionsForMemory(storedNode);
+      }
+
+      // 3. Retrieve raw stored node (proving on-disk content is encrypted)
       final rawCiphertext = storedNode.content;
 
-      // 3. Decrypt and verify
+      // 4. Decrypt and verify
       final decrypted = await _dbService.decryptNode(storedNode);
 
       final count = _dbService.getMemoryNodeCount();
       final size = await _dbService.getDatabaseSizeInBytes();
       final txCount = _dbService.getCategoryCount(MemoryCategory.transaction);
+      final edges = _dbService.getKnowledgeEdgeCount();
 
       final logs = List<String>.from(state.operationLogs)
-        ..add('[WRITE] Inserted MemoryNode #${storedNode.id} ($plaintext)')
+        ..add('[WRITE] Stored MemoryNode #${storedNode.id} ($plaintext)')
         ..add('[CIPHER] Encrypted on disk: ${rawCiphertext.substring(0, rawCiphertext.length > 28 ? 28 : rawCiphertext.length)}...')
+        ..add('[GRAPH] Reinforced edge: User -[PAID_TO]-> $merchant')
         ..add('[VERIFY] Decrypted and matched: "${decrypted.content}"');
 
       state = state.copyWith(
@@ -170,6 +193,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         totalMemoryNodes: count,
         dbSizeBytes: size,
         transactionCount: txCount,
+        knowledgeEdgeCount: edges,
         lastTestRawCiphertext: rawCiphertext,
         lastTestDecryptedText: decrypted.content,
         operationLogs: logs,
@@ -182,11 +206,53 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
   }
 
+  /// Indexes recent gallery images via on-device ML Kit OCR without copying images.
+  Future<void> indexGalleryOcr({
+    required GalleryOcrService ocrService,
+    required KnowledgeGraphService kgService,
+  }) async {
+    if (!state.isInitialized) return;
+
+    state = state.copyWith(isLoading: true);
+    try {
+      final indexedDocs = await ocrService.scanAndIndexRecentImages(maxScanCount: 20);
+
+      // Connect to Knowledge Graph
+      for (final doc in indexedDocs) {
+        await kgService.buildConnectionsForMemory(doc);
+      }
+
+      final count = _dbService.getMemoryNodeCount();
+      final size = await _dbService.getDatabaseSizeInBytes();
+      final ocrDocs = _dbService.getCategoryCount(MemoryCategory.ocrDoc);
+      final edges = _dbService.getKnowledgeEdgeCount();
+
+      final logs = List<String>.from(state.operationLogs)
+        ..add('[VISION OCR] Scanned gallery: Indexed ${indexedDocs.length} visual documents.')
+        ..add('[GRAPH] Knowledge Graph now tracking $edges semantic connections.');
+
+      state = state.copyWith(
+        isLoading: false,
+        totalMemoryNodes: count,
+        dbSizeBytes: size,
+        ocrDocCount: ocrDocs,
+        knowledgeEdgeCount: edges,
+        operationLogs: logs,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: 'Gallery OCR indexing failed: $e',
+      );
+    }
+  }
+
   /// Triggers a live manual device data ingestion pass across usage stats, calls, and notifications.
   Future<void> syncDeviceData({
     required UsageIngestionService usageService,
     required CallLogIngestionService callLogService,
     required NotificationIngestionHandler notifHandler,
+    required KnowledgeGraphService kgService,
   }) async {
     if (!state.isInitialized) return;
 
@@ -201,6 +267,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       final screenTime = _dbService.getCategoryCount(MemoryCategory.screenTime);
       final callLogs = _dbService.getCategoryCount(MemoryCategory.callLog);
       final transactions = _dbService.getCategoryCount(MemoryCategory.transaction);
+      final edges = _dbService.getKnowledgeEdgeCount();
 
       final logs = List<String>.from(state.operationLogs)
         ..add('[INGESTION] Synchronized device sensors:')
@@ -215,6 +282,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         screenTimeCount: screenTime,
         callLogCount: callLogs,
         transactionCount: transactions,
+        knowledgeEdgeCount: edges,
         operationLogs: logs,
       );
     } catch (e) {
@@ -225,8 +293,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
   }
 
-  /// Injects an expired memory node (>30 days old) and runs the storage pruner
-  /// to demonstrate rolling retention and summary aggregation.
+  /// Injects an expired memory node (>30 days old) and runs the storage pruner.
   Future<void> simulateRetentionAndPrune() async {
     if (!state.isInitialized) return;
 
@@ -292,6 +359,8 @@ class DashboardController extends StateNotifier<DashboardState> {
     final screenTime = _dbService.getCategoryCount(MemoryCategory.screenTime);
     final callLogs = _dbService.getCategoryCount(MemoryCategory.callLog);
     final transactions = _dbService.getCategoryCount(MemoryCategory.transaction);
+    final ocrDocs = _dbService.getCategoryCount(MemoryCategory.ocrDoc);
+    final edges = _dbService.getKnowledgeEdgeCount();
     final notes = _dbService.getCategoryCount(MemoryCategory.note);
 
     state = state.copyWith(
@@ -301,6 +370,8 @@ class DashboardController extends StateNotifier<DashboardState> {
       screenTimeCount: screenTime,
       callLogCount: callLogs,
       transactionCount: transactions,
+      ocrDocCount: ocrDocs,
+      knowledgeEdgeCount: edges,
       noteCount: notes,
     );
   }

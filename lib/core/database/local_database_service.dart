@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:matrix_ai_os/core/constants/app_constants.dart';
 import 'package:matrix_ai_os/core/database/models/daily_summary.dart';
+import 'package:matrix_ai_os/core/database/models/knowledge_edge.dart';
 import 'package:matrix_ai_os/core/database/models/memory_node.dart';
 import 'package:matrix_ai_os/core/security/cipher_service.dart';
 import 'package:matrix_ai_os/core/security/encryption_key_manager.dart';
@@ -43,6 +44,7 @@ class LocalDatabaseService {
   Store? _store;
   Box<MemoryNode>? _memoryBox;
   Box<DailySummary>? _summaryBox;
+  Box<KnowledgeEdge>? _edgeBox;
   String? _databaseDirectoryPath;
   bool _isInitialized = false;
 
@@ -62,6 +64,11 @@ class LocalDatabaseService {
   Box<DailySummary> get summaryBox {
     _ensureInitialized();
     return _summaryBox!;
+  }
+
+  Box<KnowledgeEdge> get edgeBox {
+    _ensureInitialized();
+    return _edgeBox!;
   }
 
   String? get databasePath => _databaseDirectoryPath;
@@ -92,6 +99,7 @@ class LocalDatabaseService {
       _store = await openStore(directory: _databaseDirectoryPath);
       _memoryBox = _store!.box<MemoryNode>();
       _summaryBox = _store!.box<DailySummary>();
+      _edgeBox = _store!.box<KnowledgeEdge>();
       _isInitialized = true;
 
       debugPrint('[LocalDatabaseService] ObjectBox initialized at $_databaseDirectoryPath with AES-256-GCM encryption.');
@@ -193,6 +201,66 @@ class LocalDatabaseService {
     return _summaryBox!.count();
   }
 
+  /// Returns total count of indexed [KnowledgeEdge] graph links.
+  int getKnowledgeEdgeCount() {
+    _ensureInitialized();
+    return _edgeBox!.count();
+  }
+
+  /// Inserts or reinforces a [KnowledgeEdge] connection between two entities.
+  Future<KnowledgeEdge> upsertEdge({
+    required String sourceEntity,
+    required String relationType,
+    required String targetEntity,
+    double weightDelta = 1.0,
+    String context = '',
+  }) async {
+    _ensureInitialized();
+
+    final encryptedCtx = context.isNotEmpty
+        ? await _cipherService.encrypt(context)
+        : '';
+
+    // Check if an existing edge between source, relation, and target exists
+    final query = (_edgeBox!.query(
+      KnowledgeEdge_.sourceEntity.equals(sourceEntity)
+          .and(KnowledgeEdge_.relationType.equals(relationType))
+          .and(KnowledgeEdge_.targetEntity.equals(targetEntity)),
+    )).build();
+
+    final existing = query.findFirst();
+    query.close();
+
+    final now = DateTime.now();
+    if (existing != null) {
+      existing.weight += weightDelta;
+      if (encryptedCtx.isNotEmpty) {
+        existing.encryptedContext = encryptedCtx;
+      }
+      existing.lastUpdated = now;
+      existing.id = _edgeBox!.put(existing);
+      return existing;
+    } else {
+      final newEdge = KnowledgeEdge(
+        sourceEntity: sourceEntity,
+        relationType: relationType,
+        targetEntity: targetEntity,
+        weight: weightDelta,
+        encryptedContext: encryptedCtx,
+        lastUpdated: now,
+      );
+      newEdge.id = _edgeBox!.put(newEdge);
+      return newEdge;
+    }
+  }
+
+  /// Decrypts the contextual snippet of a [KnowledgeEdge].
+  Future<String> decryptEdgeContext(KnowledgeEdge edge) async {
+    _ensureInitialized();
+    if (edge.encryptedContext.isEmpty) return '';
+    return _cipherService.decrypt(edge.encryptedContext);
+  }
+
   /// Calculates the on-disk footprint in bytes of the local ObjectBox database.
   Future<int> getDatabaseSizeInBytes() async {
     if (_databaseDirectoryPath == null) return 0;
@@ -213,7 +281,7 @@ class LocalDatabaseService {
   }
 
   void _ensureInitialized() {
-    if (!_isInitialized || _store == null || _memoryBox == null || _summaryBox == null) {
+    if (!_isInitialized || _store == null || _memoryBox == null || _summaryBox == null || _edgeBox == null) {
       throw StateError('LocalDatabaseService is not initialized. Call initialize() first.');
     }
   }

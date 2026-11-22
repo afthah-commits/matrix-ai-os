@@ -1,10 +1,12 @@
 import 'package:flutter/widgets.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:matrix_ai_os/core/database/local_database_service.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/services/knowledge_graph_service.dart';
 import 'package:matrix_ai_os/features/device_ingestion/data/datasources/device_stats_native_datasource.dart';
 import 'package:matrix_ai_os/features/device_ingestion/domain/services/call_log_ingestion_service.dart';
 import 'package:matrix_ai_os/features/device_ingestion/domain/services/notification_ingestion_handler.dart';
 import 'package:matrix_ai_os/features/device_ingestion/domain/services/usage_ingestion_service.dart';
+import 'package:matrix_ai_os/features/ocr_vision/domain/services/gallery_ocr_service.dart';
 
 const String kPeriodicDeviceSyncTask = 'matrix_ai_periodic_sync';
 const String kPeriodicSyncUniqueName = 'matrix_periodic_sync_id';
@@ -27,11 +29,20 @@ void callbackDispatcher() {
       final usageService = UsageIngestionService(dataSource: dataSource, dbService: dbService);
       final callLogService = CallLogIngestionService(dataSource: dataSource, dbService: dbService);
       final notificationHandler = NotificationIngestionHandler(dataSource: dataSource, dbService: dbService);
+      final kgService = KnowledgeGraphService(dbService: dbService);
 
-      // 3. Execute sync passes
+      // 3. Execute telemetry sync passes
       await usageService.syncTodayUsage();
       await callLogService.syncRecentCalls(limit: 30);
       await notificationHandler.drainBufferedNotifications();
+
+      // 4. On-Device OCR vision scanning & Knowledge Graph indexing
+      final ocrService = GalleryOcrService(dbService: dbService);
+      final indexedOcr = await ocrService.scanAndIndexRecentImages(maxScanCount: 10);
+      for (final doc in indexedOcr) {
+        await kgService.buildConnectionsForMemory(doc);
+      }
+      ocrService.dispose();
 
       debugPrint('[BackgroundSyncWorker] Background periodic sync completed successfully.');
       return Future.value(true);
