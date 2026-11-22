@@ -80,7 +80,7 @@ class DashboardScreen extends ConsumerWidget {
                 Icon(Icons.hub_outlined, color: accentViolet, size: 14),
                 SizedBox(width: 4),
                 Text(
-                  'PHASE 3.1',
+                  'PHASE 4.1',
                   style: TextStyle(
                     color: accentViolet,
                     fontSize: 11,

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:matrix_ai_os/core/constants/app_constants.dart';
-import 'package:matrix_ai_os/features/assistant_ui/presentation/screens/dashboard_screen.dart';
+import 'package:matrix_ai_os/features/assistant_ui/presentation/screens/main_shell_screen.dart';
 import 'package:matrix_ai_os/features/device_ingestion/background/background_sync_worker.dart';
 
 void main() async {
@@ -42,7 +42,7 @@ class MatrixAiOsApp extends StatelessWidget {
         ),
         fontFamily: 'Roboto',
       ),
-      home: const DashboardScreen(),
+      home: const MainShellScreen(),
     );
   }
 }
