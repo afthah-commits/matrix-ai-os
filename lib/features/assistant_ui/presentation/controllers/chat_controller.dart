@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/action_dispatcher_service.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/services/autonomous_agent_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/byok_key_manager.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/hybrid_rag_orchestrator.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/intent_router_service.dart';
@@ -23,6 +24,7 @@ class ChatMessage {
   final PendingActionConfirmation? pendingAction;
   final ActionResult? actionResult;
   final String? mcpBadge;
+  final List<AgentExecutionStep> executionSteps;
 
   const ChatMessage({
     required this.id,
@@ -38,6 +40,7 @@ class ChatMessage {
     this.pendingAction,
     this.actionResult,
     this.mcpBadge,
+    this.executionSteps = const [],
   });
 
   bool get hasBadges =>
@@ -48,7 +51,8 @@ class ChatMessage {
           isOfflineEngine ||
           intent != null ||
           actionResult != null ||
-          mcpBadge != null);
+          mcpBadge != null ||
+          executionSteps.isNotEmpty);
 }
 
 /// State for the Assistant Chat session.
@@ -174,6 +178,19 @@ class ChatController extends StateNotifier<ChatState> {
             pendingAction: pending,
             isOfflineEngine: true,
             providerUsed: 'Action Dispatcher',
+            executionSteps: [
+              AgentExecutionStep(
+                stepName: '🔍 Detected sensitive action: ${action.type.displayName}',
+                status: 'running',
+                timestamp: DateTime.now(),
+              ),
+              AgentExecutionStep(
+                stepName: '⚠️ Safety Gate: Human Approval Required',
+                status: 'pending_approval',
+                output: action.description,
+                timestamp: DateTime.now(),
+              ),
+            ],
           );
 
           state = state.copyWith(
@@ -197,6 +214,20 @@ class ChatController extends StateNotifier<ChatState> {
             displayText = '⚡ **Action Executed:** ${result.message}';
           }
 
+          final steps = <AgentExecutionStep>[
+            AgentExecutionStep(
+              stepName: '🔍 Resolving action: ${action.description}...',
+              status: 'running',
+              timestamp: DateTime.now(),
+            ),
+            AgentExecutionStep(
+              stepName: result.success ? '🚀 ${result.message}' : '❌ ${result.message}',
+              status: result.success ? 'success' : 'failed',
+              output: result.data?.toString(),
+              timestamp: DateTime.now(),
+            ),
+          ];
+
           final actionMsg = ChatMessage(
             id: 'action_${DateTime.now().millisecondsSinceEpoch}',
             text: displayText,
@@ -205,6 +236,7 @@ class ChatController extends StateNotifier<ChatState> {
             actionResult: result,
             isOfflineEngine: true,
             providerUsed: 'Action Executor',
+            executionSteps: steps,
           );
 
           state = state.copyWith(
@@ -232,6 +264,8 @@ class ChatController extends StateNotifier<ChatState> {
         isOfflineEngine: response.isOfflineEngine,
         providerUsed: response.providerUsed,
         mcpBadge: response.mcpBadge,
+        executionSteps: response.executionSteps,
+        pendingAction: response.pendingConfirmation,
       );
 
       state = state.copyWith(
@@ -272,6 +306,19 @@ class ChatController extends StateNotifier<ChatState> {
       actionResult: result,
       isOfflineEngine: true,
       providerUsed: 'Action Executor',
+      executionSteps: [
+        AgentExecutionStep(
+          stepName: '✅ User Approved Action: ${pending.action.description}',
+          status: 'success',
+          timestamp: DateTime.now(),
+        ),
+        AgentExecutionStep(
+          stepName: result.success ? '🚀 ${result.message}' : '❌ ${result.message}',
+          status: result.success ? 'success' : 'failed',
+          output: result.data?.toString(),
+          timestamp: DateTime.now(),
+        ),
+      ],
     );
 
     state = state.copyWith(

@@ -20,6 +20,12 @@ void main() {
             return true;
           case 'composeWhatsAppMessage':
             return true;
+          case 'launchAppByName':
+            return {
+              'success': true,
+              'appName': 'YouTube',
+              'packageName': 'com.google.android.youtube',
+            };
           case 'launchApp':
             return true;
           case 'getCurrentScreenContext':

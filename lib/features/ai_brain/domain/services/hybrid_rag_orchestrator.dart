@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:matrix_ai_os/features/ai_brain/data/tools/live_web_search_tool.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/mcp/mcp_plugin_registry.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/services/action_dispatcher_service.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/services/autonomous_agent_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/byok_key_manager.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/intent_router_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/knowledge_graph_service.dart';
@@ -22,6 +24,9 @@ class RagResponse {
   final bool isOfflineEngine;
   final String providerUsed;
   final String? mcpBadge;
+  final List<AgentExecutionStep> executionSteps;
+  final PendingActionConfirmation? pendingConfirmation;
+  final String? actionBadge;
 
   const RagResponse({
     required this.text,
@@ -32,21 +37,25 @@ class RagResponse {
     required this.isOfflineEngine,
     required this.providerUsed,
     this.mcpBadge,
+    this.executionSteps = const [],
+    this.pendingConfirmation,
+    this.actionBadge,
   });
 
   @override
   String toString() =>
-      'RagResponse(tokensMasked: $tokensMasked, memories: $localMemoriesUsed, web: $webResultsUsed, offline: $isOfflineEngine, mcp: $mcpBadge)';
+      'RagResponse(tokensMasked: $tokensMasked, memories: $localMemoriesUsed, web: $webResultsUsed, offline: $isOfflineEngine, mcp: $mcpBadge, steps: ${executionSteps.length})';
 }
 
 /// Orchestrates Hybrid RAG:
 /// 1. MCP tool detection and execution
-/// 2. Intent routing
-/// 3. Local Knowledge Graph & encrypted memory retrieval
-/// 4. Zero-leakage on-device PII masking
-/// 5. Live web tool retrieval (DuckDuckGo Instant/HTML Lite)
-/// 6. BYOK Cloud LLM invocation (Gemini / OpenAI) or Local SLM / Deterministic Engine
-/// 7. Local on-device PII restoration
+/// 2. Autonomous tool loop and app launcher
+/// 3. Intent routing
+/// 4. Local Knowledge Graph & encrypted memory retrieval
+/// 5. Zero-leakage on-device PII masking
+/// 6. Live web tool retrieval (DuckDuckGo Instant/HTML Lite)
+/// 7. BYOK Cloud LLM invocation (Gemini / OpenAI) or Local SLM / Deterministic Engine
+/// 8. Local on-device PII restoration
 class HybridRagOrchestrator {
   final KnowledgeGraphService _knowledgeGraphService;
   final PiiMaskingService _piiMaskingService;
@@ -55,6 +64,7 @@ class HybridRagOrchestrator {
   final ByokKeyManager _byokManager;
   final McpPluginRegistry? _mcpRegistry;
   final OfflineSlmManager? _slmManager;
+  final AutonomousAgentService? _autonomousAgent;
   final http.Client _client;
 
   HybridRagOrchestrator({
@@ -65,6 +75,7 @@ class HybridRagOrchestrator {
     required ByokKeyManager byokManager,
     McpPluginRegistry? mcpRegistry,
     OfflineSlmManager? slmManager,
+    AutonomousAgentService? autonomousAgent,
     http.Client? client,
   })  : _knowledgeGraphService = knowledgeGraphService,
         _piiMaskingService = piiMaskingService,
@@ -73,6 +84,7 @@ class HybridRagOrchestrator {
         _byokManager = byokManager,
         _mcpRegistry = mcpRegistry,
         _slmManager = slmManager,
+        _autonomousAgent = autonomousAgent,
         _client = client ?? http.Client();
 
   /// Primary conversational query entry point.
@@ -104,6 +116,29 @@ class HybridRagOrchestrator {
           providerUsed: 'MCP: ${mcpResult.telemetryBadge}',
           mcpBadge: mcpResult.telemetryBadge,
         );
+      }
+    }
+
+    // 0.5. Check Autonomous Agent Tool Routing (Direct on-device action loop)
+    if (_autonomousAgent != null) {
+      final toolCall = _autonomousAgent.parseToolCall(cleanPrompt);
+      if (toolCall != null) {
+        final agentResult = await _autonomousAgent.executeAgentLoop(cleanPrompt, initialCall: toolCall);
+        if (agentResult.hasAction) {
+          return RagResponse(
+            text: agentResult.finalResponse,
+            tokensMasked: 0,
+            localMemoriesUsed: 0,
+            webResultsUsed: 0,
+            intent: UserIntent.personalMemory,
+            isOfflineEngine: true,
+            providerUsed: 'Autonomous Agent',
+            mcpBadge: agentResult.actionBadge,
+            executionSteps: agentResult.steps,
+            pendingConfirmation: agentResult.pendingConfirmation,
+            actionBadge: agentResult.actionBadge,
+          );
+        }
       }
     }
 
@@ -243,6 +278,31 @@ class HybridRagOrchestrator {
       );
     }
 
+    // Check if Cloud LLM emitted a structured autonomous tool call
+    if (_autonomousAgent != null) {
+      final cloudToolCall = _autonomousAgent.parseToolCallFromJson(cloudReply);
+      if (cloudToolCall != null) {
+        final loopResult = await _autonomousAgent.executeAgentLoop(prompt, initialCall: cloudToolCall);
+        if (loopResult.hasAction) {
+          final restored = _piiMaskingService.unmask(loopResult.finalResponse, mergedTokenMap);
+          return RagResponse(
+            text: restored,
+            tokensMasked: mergedTokenMap.length,
+            localMemoriesUsed:
+                (personalResult?.memories.length ?? 0) + (personalResult?.edges.length ?? 0),
+            webResultsUsed: webResult?.items.length ?? 0,
+            intent: intent,
+            isOfflineEngine: false,
+            providerUsed: '${provider.displayName} + Autonomous Agent',
+            mcpBadge: loopResult.actionBadge,
+            executionSteps: loopResult.steps,
+            pendingConfirmation: loopResult.pendingConfirmation,
+            actionBadge: loopResult.actionBadge,
+          );
+        }
+      }
+    }
+
     // Restore PII tokens locally on device
     final restoredResponse = _piiMaskingService.unmask(cloudReply, mergedTokenMap);
 
@@ -273,7 +333,8 @@ class HybridRagOrchestrator {
         'You are Matrix AI OS, a privacy-first on-device personal operating system. '
         'Personal identifiers in the context appear as privacy tokens like [PHONE_1], [ACCOUNT_1], [ID_DOC_1]. '
         'You MUST preserve these exact privacy tokens in your response so the user device can restore them locally. '
-        'Answer concisely and accurately based on the provided context.';
+        'Answer concisely and accurately based on the provided context.\n\n'
+        '${AutonomousAgentService.getToolSystemInstructions()}';
 
     final userContent = StringBuffer();
     if (maskedContext.isNotEmpty) {
@@ -337,7 +398,8 @@ class HybridRagOrchestrator {
     final systemPrompt =
         'You are Matrix AI OS, a privacy-first on-device personal operating system. '
         'Personal identifiers in the context appear as privacy tokens like [PHONE_1], [ACCOUNT_1], [ID_DOC_1]. '
-        'Preserve these exact tokens in your response so the user device can restore them locally.';
+        'Preserve these exact tokens in your response so the user device can restore them locally.\n\n'
+        '${AutonomousAgentService.getToolSystemInstructions()}';
 
     final userContent = StringBuffer();
     if (maskedContext.isNotEmpty) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/action_dispatcher_service.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/services/autonomous_agent_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/controllers/chat_controller.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/screens/ai_settings_modal.dart';
@@ -20,14 +21,15 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
   final ScrollController _scrollController = ScrollController();
 
   static const _quickPrompts = [
-    'How much did I spend this week?',
+    'Open WhatsApp',
+    'Open Camera',
+    'Open Settings',
+    'Open YouTube',
     'Convert 100 USD to INR',
     'Device storage status',
     'Generate daily digest',
-    'Who called me recently?',
     'What is my passport number?',
     'Read my screen',
-    'Open YouTube',
     'Call +91 98765 43210',
     'Latest tech news',
   ];
@@ -491,6 +493,12 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
               ),
             ),
 
+            // Autonomous ReAct Execution Steps Card
+            if (msg.executionSteps.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              _buildExecutionStepsCard(msg.executionSteps, primaryEmerald, neonCyan, amberAlert),
+            ],
+
             // Action Confirmation Card for Sensitive Actions
             if (msg.pendingAction != null) ...[
               const SizedBox(height: 12),
@@ -588,6 +596,90 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExecutionStepsCard(
+    List<AgentExecutionStep> steps,
+    Color primaryEmerald,
+    Color neonCyan,
+    Color amberAlert,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF090E17),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF1E293B)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.terminal, color: Color(0xFF38BDF8), size: 14),
+              SizedBox(width: 6),
+              Text(
+                'AUTONOMOUS AGENT EXECUTION TRACE',
+                style: TextStyle(
+                  color: Color(0xFF94A3B8),
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...steps.map((step) {
+            IconData iconData;
+            Color iconColor;
+            switch (step.status) {
+              case 'success':
+                iconData = Icons.check_circle_rounded;
+                iconColor = primaryEmerald;
+                break;
+              case 'failed':
+                iconData = Icons.error_outline_rounded;
+                iconColor = Colors.redAccent;
+                break;
+              case 'pending_approval':
+                iconData = Icons.shield_outlined;
+                iconColor = amberAlert;
+                break;
+              default:
+                iconData = Icons.play_arrow_rounded;
+                iconColor = neonCyan;
+                break;
+            }
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2.5),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(iconData, color: iconColor, size: 13),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      step.stepName,
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10.5,
+                        color: step.status == 'failed'
+                            ? Colors.red.shade300
+                            : const Color(0xFFE2E8F0),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );

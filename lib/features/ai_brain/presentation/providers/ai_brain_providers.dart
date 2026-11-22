@@ -6,6 +6,7 @@ import 'package:matrix_ai_os/features/ai_brain/domain/mcp/plugins/device_battery
 import 'package:matrix_ai_os/features/ai_brain/domain/mcp/plugins/personal_digest_plugin.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/mcp/plugins/quick_math_currency_plugin.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/action_dispatcher_service.dart';
+import 'package:matrix_ai_os/features/ai_brain/domain/services/autonomous_agent_service.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/byok_key_manager.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/hybrid_rag_orchestrator.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/intent_router_service.dart';
@@ -87,6 +88,14 @@ final mcpPluginRegistryProvider = ChangeNotifierProvider<McpPluginRegistry>((ref
   return registry;
 });
 
+/// Provider for Autonomous Agent Service.
+final autonomousAgentServiceProvider = Provider<AutonomousAgentService>((ref) {
+  return AutonomousAgentService(
+    actionDispatcher: ref.watch(actionDispatcherServiceProvider),
+    knowledgeGraphService: ref.watch(knowledgeGraphServiceProvider),
+  );
+});
+
 /// Provider for the Hybrid RAG Orchestrator with SLM & MCP integration.
 final hybridRagOrchestratorProvider = Provider<HybridRagOrchestrator>((ref) {
   return HybridRagOrchestrator(
@@ -97,5 +106,6 @@ final hybridRagOrchestratorProvider = Provider<HybridRagOrchestrator>((ref) {
     byokManager: ref.watch(byokKeyManagerProvider),
     mcpRegistry: ref.watch(mcpPluginRegistryProvider),
     slmManager: ref.watch(offlineSlmManagerProvider),
+    autonomousAgent: ref.watch(autonomousAgentServiceProvider),
   );
 });

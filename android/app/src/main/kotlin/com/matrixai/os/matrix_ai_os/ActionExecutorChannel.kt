@@ -3,6 +3,8 @@ package com.matrixai.os.matrix_ai_os
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
@@ -11,7 +13,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * MethodChannel handler for Phone Action Execution and Accessibility screen reading.
+ * MethodChannel handler for Phone Action Execution, Dynamic App Launcher, and Accessibility screen reading.
  */
 class ActionExecutorChannel(
     private val context: Context,
@@ -27,6 +29,21 @@ class ActionExecutorChannel(
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         try {
             when (call.method) {
+                "getInstalledApps" -> {
+                    val apps = getInstalledApps()
+                    result.success(apps)
+                }
+
+                "launchAppByName" -> {
+                    val query = call.argument<String>("name") ?: call.argument<String>("query")
+                    if (query.isNullOrBlank()) {
+                        result.error("INVALID_ARGS", "App name query cannot be empty", null)
+                        return
+                    }
+                    val launchResult = launchAppByName(query)
+                    result.success(launchResult)
+                }
+
                 "launchApp" -> {
                     val packageName = call.argument<String>("packageName")
                     if (packageName.isNullOrBlank()) {
@@ -84,6 +101,135 @@ class ActionExecutorChannel(
             Log.e(TAG, "Error in ActionExecutorChannel call '${call.method}': ${e.message}")
             result.error("EXECUTION_ERROR", e.message, null)
         }
+    }
+
+    /**
+     * Query Android's PackageManager to retrieve all launchable applications dynamically.
+     */
+    private fun getInstalledApps(): List<Map<String, String>> {
+        val packageManager = context.packageManager
+        val intent = Intent(Intent.ACTION_MAIN, null).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
+        val resolveInfoList: List<ResolveInfo> = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            packageManager.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.queryIntentActivities(intent, 0)
+        }
+
+        val appList = ArrayList<Map<String, String>>(resolveInfoList.size)
+        for (resolveInfo in resolveInfoList) {
+            val appName = resolveInfo.loadLabel(packageManager).toString().trim()
+            val packageName = resolveInfo.activityInfo.packageName
+            appList.add(mapOf("appName" to appName, "packageName" to packageName))
+        }
+        return appList
+    }
+
+    /**
+     * Finds the best matching installed app (case-insensitive exact, prefix, contains, or alias)
+     * and launches it immediately.
+     */
+    private fun launchAppByName(query: String): Map<String, Any> {
+        val cleanQuery = query.trim().lowercase()
+        if (cleanQuery.isEmpty()) {
+            return mapOf("success" to false, "error" to "Query is empty")
+        }
+
+        val apps = getInstalledApps()
+
+        // 1. Exact match by App Name
+        var matched = apps.firstOrNull { it["appName"]?.lowercase() == cleanQuery }
+
+        // 2. Starts with query (e.g. "Whats" -> "WhatsApp")
+        if (matched == null) {
+            matched = apps.firstOrNull { it["appName"]?.lowercase()?.startsWith(cleanQuery) == true }
+        }
+
+        // 3. Contains query (e.g. "tube" -> "YouTube")
+        if (matched == null) {
+            matched = apps.firstOrNull { it["appName"]?.lowercase()?.contains(cleanQuery) == true }
+        }
+
+        // 4. Exact or partial match on package name
+        if (matched == null) {
+            matched = apps.firstOrNull { it["packageName"]?.lowercase() == cleanQuery }
+        }
+        if (matched == null) {
+            matched = apps.firstOrNull { it["packageName"]?.lowercase()?.contains(cleanQuery) == true }
+        }
+
+        // 5. Semantic keyword aliases for standard OEM/Android apps (Nothing OS, Pixel, Samsung, etc.)
+        if (matched == null) {
+            when (cleanQuery) {
+                "camera" -> {
+                    matched = apps.firstOrNull {
+                        val name = it["appName"]?.lowercase() ?: ""
+                        val pkg = it["packageName"]?.lowercase() ?: ""
+                        name.contains("camera") || pkg.contains("camera")
+                    }
+                }
+                "settings" -> {
+                    matched = apps.firstOrNull {
+                        val pkg = it["packageName"]?.lowercase() ?: ""
+                        pkg == "com.android.settings" || it["appName"]?.lowercase() == "settings"
+                    }
+                }
+                "gallery", "photos" -> {
+                    matched = apps.firstOrNull {
+                        val name = it["appName"]?.lowercase() ?: ""
+                        val pkg = it["packageName"]?.lowercase() ?: ""
+                        name.contains("gallery") || name.contains("photos") || pkg.contains("gallery") || pkg.contains("photos")
+                    }
+                }
+                "browser", "internet", "chrome" -> {
+                    matched = apps.firstOrNull {
+                        val name = it["appName"]?.lowercase() ?: ""
+                        val pkg = it["packageName"]?.lowercase() ?: ""
+                        name.contains("chrome") || pkg.contains("chrome") || name.contains("browser")
+                    }
+                }
+                "calculator" -> {
+                    matched = apps.firstOrNull {
+                        val name = it["appName"]?.lowercase() ?: ""
+                        val pkg = it["packageName"]?.lowercase() ?: ""
+                        name.contains("calculator") || pkg.contains("calculator")
+                    }
+                }
+                "clock", "alarm" -> {
+                    matched = apps.firstOrNull {
+                        val name = it["appName"]?.lowercase() ?: ""
+                        val pkg = it["packageName"]?.lowercase() ?: ""
+                        name.contains("clock") || pkg.contains("deskclock")
+                    }
+                }
+                "files", "file manager" -> {
+                    matched = apps.firstOrNull {
+                        val name = it["appName"]?.lowercase() ?: ""
+                        val pkg = it["packageName"]?.lowercase() ?: ""
+                        name.contains("files") || pkg.contains("documentsui") || pkg.contains("filemanager")
+                    }
+                }
+            }
+        }
+
+        if (matched != null) {
+            val pkg = matched["packageName"] ?: ""
+            val name = matched["appName"] ?: pkg
+            val launched = launchApp(pkg)
+            return if (launched) {
+                mapOf("success" to true, "appName" to name, "packageName" to pkg)
+            } else {
+                mapOf("success" to false, "error" to "Failed to start activity for $pkg", "appName" to name, "packageName" to pkg)
+            }
+        }
+
+        return mapOf(
+            "success" to false,
+            "error" to "No installed app found matching '$query'",
+            "query" to query
+        )
     }
 
     private fun launchApp(packageName: String): Boolean {

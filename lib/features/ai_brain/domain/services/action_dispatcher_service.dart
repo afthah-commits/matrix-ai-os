@@ -68,7 +68,8 @@ class ActionResult {
 /// Action Dispatcher & Safety Confirmation Gate.
 ///
 /// Ensures that zero sensitive actions (calls, messages, external dispatch)
-/// execute without explicit user approval in the UI.
+/// execute without explicit user approval in the UI, and resolves real installed
+/// apps dynamically via Android's PackageManager.
 class ActionDispatcherService {
   final MethodChannel _channel;
 
@@ -77,14 +78,14 @@ class ActionDispatcherService {
   ActionDispatcherService({MethodChannel? channel})
       : _channel = channel ?? const MethodChannel(channelName);
 
-  // Common app package mappings
+  // Common fallback app package hints if offline or legacy
   static const Map<String, String> _appPackages = {
     'whatsapp': 'com.whatsapp',
     'youtube': 'com.google.android.youtube',
     'chrome': 'com.android.chrome',
     'settings': 'com.android.settings',
     'maps': 'com.google.android.apps.maps',
-    'camera': 'com.google.android.GoogleCamera',
+    'camera': 'camera',
     'gmail': 'com.google.android.gm',
     'messages': 'com.google.android.apps.messaging',
     'spotify': 'com.spotify.music',
@@ -163,18 +164,22 @@ class ActionDispatcherService {
       );
     }
 
-    // 5. Open Application
-    // E.g.: "Open WhatsApp", "Launch YouTube", "Open Settings"
-    final openAppRegex = RegExp(r'(?:open|launch)\s+([a-zA-Z0-9_\s]+)', caseSensitive: false);
+    // 5. Open Application (Dynamic App Launcher)
+    // E.g.: "Open WhatsApp", "Launch Camera", "Please open Settings", "Can you launch YouTube"
+    final openAppRegex = RegExp(
+      r'(?:can you\s+)?(?:please\s+)?(?:open|launch|start|switch to)\s+([a-zA-Z0-9_\s\-]+)',
+      caseSensitive: false,
+    );
     final openMatch = openAppRegex.firstMatch(text);
     if (openMatch != null) {
-      final appName = openMatch.group(1)!.trim().toLowerCase();
-      final pkg = _appPackages[appName] ?? appName;
+      final rawAppName = openMatch.group(1)!.trim();
+      final cleanAppName = rawAppName.toLowerCase();
+      final pkg = _appPackages[cleanAppName] ?? cleanAppName;
       return PhoneAction(
         id: 'act_$nowMs',
         type: ActionType.openApp,
-        params: {'packageName': pkg, 'appName': appName},
-        description: 'Open application "$appName"',
+        params: {'packageName': pkg, 'appName': rawAppName},
+        description: 'Open application "$rawAppName"',
         isSensitive: false,
       );
     }
@@ -226,11 +231,39 @@ class ActionDispatcherService {
           );
 
         case ActionType.openApp:
+          final appName = action.params['appName'] as String? ?? '';
           final pkg = action.params['packageName'] as String? ?? '';
-          final success = await _channel.invokeMethod<bool>('launchApp', {'packageName': pkg});
+
+          // 1. Dynamic resolution via native PackageManager
+          if (appName.isNotEmpty) {
+            final dynamicResult = await launchAppByName(appName);
+            if (dynamicResult['success'] == true) {
+              final launchedPkg = dynamicResult['packageName'] ?? pkg;
+              final launchedName = dynamicResult['appName'] ?? appName;
+              return ActionResult(
+                success: true,
+                message: 'Launched $launchedName ($launchedPkg)',
+                action: action,
+                data: dynamicResult,
+              );
+            }
+          }
+
+          // 2. Fallback to direct package launch if package provided
+          if (pkg.isNotEmpty) {
+            final success = await _channel.invokeMethod<bool>('launchApp', {'packageName': pkg});
+            if (success == true) {
+              return ActionResult(
+                success: true,
+                message: 'Launched application ($pkg)',
+                action: action,
+              );
+            }
+          }
+
           return ActionResult(
-            success: success ?? false,
-            message: (success ?? false) ? 'Launched application' : 'Failed to launch application',
+            success: false,
+            message: 'Could not find or launch application for "$appName"',
             action: action,
           );
 
@@ -260,6 +293,37 @@ class ActionDispatcherService {
         message: 'Action execution failed: $e',
         action: action,
       );
+    }
+  }
+
+  /// Retrieves all launchable installed apps on the device dynamically via PackageManager.
+  Future<List<Map<String, String>>> getInstalledApps() async {
+    try {
+      final list = await _channel.invokeListMethod<dynamic>('getInstalledApps');
+      if (list == null) return [];
+      return list.map((item) {
+        final map = Map<String, dynamic>.from(item as Map);
+        return {
+          'appName': (map['appName'] ?? '').toString(),
+          'packageName': (map['packageName'] ?? '').toString(),
+        };
+      }).toList();
+    } catch (e) {
+      debugPrint('Error getting installed apps: $e');
+      return [];
+    }
+  }
+
+  /// Dynamically resolves and launches an installed app by natural query name.
+  Future<Map<String, dynamic>> launchAppByName(String query) async {
+    try {
+      final res = await _channel.invokeMapMethod<String, dynamic>(
+        'launchAppByName',
+        {'name': query},
+      );
+      return res ?? {'success': false, 'error': 'No response from native channel'};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
     }
   }
 
