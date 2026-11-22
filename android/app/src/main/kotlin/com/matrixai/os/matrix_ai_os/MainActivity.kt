@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Log
 import android.view.WindowManager
@@ -14,8 +15,11 @@ import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 class MainActivity : FlutterActivity() {
+
+    private var pendingPickResult: MethodChannel.Result? = null
 
     private var deviceStatsChannel: DeviceStatsChannel? = null
     private var notificationChannel: MethodChannel? = null
@@ -48,7 +52,9 @@ class MainActivity : FlutterActivity() {
         notificationChannel = MethodChannel(messenger, NOTIFICATION_CHANNEL_NAME)
 
         // 3. Register ActionExecutor MethodChannel
-        actionExecutorChannel = ActionExecutorChannel(applicationContext, messenger)
+        actionExecutorChannel = ActionExecutorChannel(applicationContext, messenger).apply {
+            pickerLauncher = { res -> launchDocumentPicker(res) }
+        }
 
         // 4. Register LocalSlm MethodChannel
         localSlmChannel = LocalSlmChannel(applicationContext, messenger)
@@ -246,6 +252,82 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    fun launchDocumentPicker(result: MethodChannel.Result) {
+        pendingPickResult = result
+        try {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "application/pdf"))
+            }
+            startActivityForResult(intent, REQUEST_PICK_DOCUMENT)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error launching document picker: ${e.message}")
+            pendingPickResult = null
+            result.error("PICKER_ERROR", e.message, null)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_PICK_DOCUMENT) {
+            val result = pendingPickResult
+            pendingPickResult = null
+            if (resultCode == RESULT_OK && data?.data != null) {
+                val uri = data.data!!
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Exception) {}
+
+                var displayName = "uploaded_document"
+                var size = 0L
+                try {
+                    contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                            if (nameIdx >= 0) displayName = cursor.getString(nameIdx) ?: displayName
+                            if (sizeIdx >= 0) size = cursor.getLong(sizeIdx)
+                        }
+                    }
+                } catch (_: Exception) {}
+
+                val mimeType = contentResolver.getType(uri) ?: (
+                    if (displayName.endsWith(".pdf", ignoreCase = true)) "application/pdf" else "image/jpeg"
+                )
+
+                val uploadDir = File(cacheDir, "vault_uploads").apply { mkdirs() }
+                val cachedFile = File(uploadDir, displayName)
+                try {
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        cachedFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error caching picked document: ${e.message}")
+                }
+
+                result?.success(mapOf(
+                    "success" to true,
+                    "uri" to uri.toString(),
+                    "filePath" to cachedFile.absolutePath,
+                    "fileName" to displayName,
+                    "mimeType" to mimeType,
+                    "fileSize" to size
+                ))
+            } else {
+                result?.success(mapOf(
+                    "success" to false,
+                    "canceled" to true
+                ))
+            }
+        }
+    }
+
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         MatrixNotificationListener.listenerCallback = null
         deviceStatsChannel?.cleanUp()
@@ -265,5 +347,6 @@ class MainActivity : FlutterActivity() {
         private const val TAG = "MainActivity"
         const val NOTIFICATION_CHANNEL_NAME = "com.matrixai.os/notifications"
         const val WAKE_WORD_CHANNEL_NAME = "com.matrixai.os/wake_word"
+        const val REQUEST_PICK_DOCUMENT = 9911
     }
 }

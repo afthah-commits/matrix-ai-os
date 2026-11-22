@@ -353,6 +353,32 @@ class DeepDocumentFinderService {
           name.contains('statement');
     }
 
+    if (q.contains('pan') || q.contains('aadhaar') || q.contains('id card') || q.contains('license') || q.contains('licence')) {
+      return classification.type == DocumentType.passportId ||
+          t.contains('pan') ||
+          t.contains('income tax') ||
+          t.contains('aadhaar') ||
+          name.contains('pan') ||
+          name.contains('aadhaar') ||
+          name.contains('id');
+    }
+
+    if (q.contains('പാസ്പോർട്ട്')) {
+      return classification.type == DocumentType.passportId ||
+          t.contains('passport') ||
+          name.contains('passport') ||
+          name.contains('പാസ്പോർട്ട്');
+    }
+    if (q.contains('ടിക്കറ്റ്')) {
+      return classification.type == DocumentType.ticketBooking ||
+          t.contains('ticket') ||
+          name.contains('ticket') ||
+          name.contains('ടിക്കറ്റ്');
+    }
+    if (q.contains('രേഖ') || q.contains('ഡോക്യുമെന്റ്') || q.contains('ഫയൽ')) {
+      return true;
+    }
+
     // Broad document queries
     if (q.contains('document') || q.contains('doc') || q.contains('pdf') || q.contains('find') || q.contains('search')) {
       return true;

@@ -201,6 +201,34 @@ class LocalDatabaseService {
     }
   }
 
+  /// Returns all decrypted memory nodes sorted by timestamp descending.
+  Future<List<DecryptedMemoryNode>> getAllDecryptedNodes({
+    int limit = 100,
+  }) async {
+    _ensureInitialized();
+
+    final query = (_memoryBox!.query()
+          ..order(MemoryNode_.timestamp, flags: Order.descending))
+        .build();
+
+    try {
+      final rawNodes = query.find().take(limit).toList();
+      final decryptedList = <DecryptedMemoryNode>[];
+      for (final raw in rawNodes) {
+        decryptedList.add(await decryptNode(raw));
+      }
+      return decryptedList;
+    } finally {
+      query.close();
+    }
+  }
+
+  /// Permanently removes a memory node by ID from ObjectBox.
+  Future<bool> deleteMemoryNode(int id) async {
+    _ensureInitialized();
+    return _memoryBox!.remove(id);
+  }
+
   /// Returns total count of stored [MemoryNode] entries.
   int getMemoryNodeCount() {
     _ensureInitialized();

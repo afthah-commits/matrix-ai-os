@@ -6,9 +6,11 @@ import 'package:matrix_ai_os/core/utils/formatters.dart';
 import 'package:matrix_ai_os/features/ai_brain/domain/services/proactive_context_engine.dart';
 import 'package:matrix_ai_os/features/ai_brain/presentation/providers/ai_brain_providers.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/controllers/dashboard_controller.dart';
+import 'package:matrix_ai_os/features/assistant_ui/presentation/screens/memory_category_detail_screen.dart';
 import 'package:matrix_ai_os/features/assistant_ui/presentation/services/wake_word_bridge_service.dart';
 import 'package:matrix_ai_os/features/device_ingestion/presentation/providers/device_ingestion_providers.dart';
 import 'package:matrix_ai_os/features/ocr_vision/presentation/providers/ocr_vision_providers.dart';
+import 'package:matrix_ai_os/features/ocr_vision/presentation/screens/upload_document_modal.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -201,6 +203,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                             accentColor: accentViolet,
                             surfaceColor: surfaceCardColor,
                             borderColor: borderColor,
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const MemoryCategoryDetailScreen(initialCategory: 'all'),
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -213,6 +220,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                             accentColor: amberAlert,
                             surfaceColor: surfaceCardColor,
                             borderColor: borderColor,
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const MemoryCategoryDetailScreen(initialCategory: 'daily_summary'),
+                              ),
+                            ),
                           ),
                         ),
                       ],
@@ -231,6 +243,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                             accentColor: const Color(0xFFC084FC),
                             surfaceColor: surfaceCardColor,
                             borderColor: borderColor,
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const MemoryCategoryDetailScreen(initialCategory: 'ocr_doc'),
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -243,6 +260,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                             accentColor: const Color(0xFF34D399),
                             surfaceColor: surfaceCardColor,
                             borderColor: borderColor,
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const MemoryCategoryDetailScreen(initialCategory: 'all'),
+                              ),
+                            ),
                           ),
                         ),
                       ],
@@ -284,113 +306,76 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
                     ),
                     const SizedBox(height: 10),
 
-                    // Phase 3 Ingestion Action: Index Gallery OCR
+                    // 4 Intuitive Pipeline Action Cards (2x2 Grid)
                     Row(
                       children: [
                         Expanded(
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: accentViolet,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              elevation: 2,
-                            ),
-                            onPressed: state.isLoading || permState.isSyncing
-                                ? null
-                                : () async {
-                                    await controller.indexGalleryOcr(
-                                      ocrService: ref.read(galleryOcrServiceProvider),
-                                      kgService: ref.read(knowledgeGraphServiceProvider),
-                                    );
-                                    await permController.checkPermissions();
-                                  },
-                            icon: const Icon(Icons.document_scanner_rounded, size: 18),
-                            label: const Text(
-                              'Index Gallery OCR',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                            ),
+                          child: _buildPipelineActionCard(
+                            title: 'Sync Phone Signals',
+                            subtitle: "Fetch screen time, call logs & bank alerts",
+                            icon: Icons.sync_rounded,
+                            accentColor: neonCyan,
+                            surfaceColor: surfaceCardColor,
+                            borderColor: borderColor,
+                            isLoading: state.isLoading || permState.isSyncing,
+                            onTap: () async {
+                              await controller.syncDeviceData(
+                                usageService: ref.read(usageIngestionServiceProvider),
+                                callLogService: ref.read(callLogIngestionServiceProvider),
+                                notifHandler: ref.read(notificationIngestionHandlerProvider),
+                                kgService: ref.read(knowledgeGraphServiceProvider),
+                              );
+                              await permController.checkPermissions();
+                            },
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: neonCyan,
-                              foregroundColor: Colors.black,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              elevation: 2,
-                            ),
-                            onPressed: state.isLoading || permState.isSyncing
-                                ? null
-                                : () async {
-                                    await controller.syncDeviceData(
-                                      usageService: ref.read(usageIngestionServiceProvider),
-                                      callLogService: ref.read(callLogIngestionServiceProvider),
-                                      notifHandler: ref.read(notificationIngestionHandlerProvider),
-                                      kgService: ref.read(knowledgeGraphServiceProvider),
-                                    );
-                                    await permController.checkPermissions();
-                                  },
-                            icon: const Icon(Icons.sync_rounded, size: 18),
-                            label: const Text(
-                              'Sync Sensors Now',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                            ),
+                          child: _buildPipelineActionCard(
+                            title: 'Scan Gallery for Docs',
+                            subtitle: "Auto-detect receipts, tickets & IDs",
+                            icon: Icons.document_scanner_rounded,
+                            accentColor: accentViolet,
+                            surfaceColor: surfaceCardColor,
+                            borderColor: borderColor,
+                            isLoading: state.isLoading || permState.isSyncing,
+                            onTap: () async {
+                              await controller.indexGalleryOcr(
+                                ocrService: ref.read(galleryOcrServiceProvider),
+                                kgService: ref.read(knowledgeGraphServiceProvider),
+                              );
+                              await permController.checkPermissions();
+                            },
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 10),
-
                     Row(
                       children: [
                         Expanded(
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: primaryEmerald,
-                              foregroundColor: Colors.black,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                            onPressed: state.isLoading
-                                ? null
-                                : () => controller.testWriteAndEncrypt(
-                                      kgService: ref.read(knowledgeGraphServiceProvider),
-                                    ),
-                            icon: const Icon(Icons.enhanced_encryption, size: 16),
-                            label: const Text(
-                              'Test Write & Encrypt',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                            ),
+                          child: _buildPipelineActionCard(
+                            title: 'Upload ID / Document',
+                            subtitle: "Add Passport, PAN, or PDF to vault",
+                            icon: Icons.add_photo_alternate_rounded,
+                            accentColor: primaryEmerald,
+                            surfaceColor: surfaceCardColor,
+                            borderColor: borderColor,
+                            isLoading: false,
+                            onTap: () => UploadDocumentModal.show(context),
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
-                          child: OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: amberAlert,
-                              side: BorderSide(color: amberAlert.withValues(alpha: 0.7)),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                            onPressed: state.isLoading
-                                ? null
-                                : () => controller.simulateRetentionAndPrune(),
-                            icon: const Icon(Icons.cleaning_services_rounded, size: 16),
-                            label: const Text(
-                              'Simulate & Prune',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                            ),
+                          child: _buildPipelineActionCard(
+                            title: 'Run AI Memory Pruning',
+                            subtitle: "Compress 30+ day logs & free space",
+                            icon: Icons.cleaning_services_rounded,
+                            accentColor: amberAlert,
+                            surfaceColor: surfaceCardColor,
+                            borderColor: borderColor,
+                            isLoading: state.isLoading,
+                            onTap: () => controller.simulateRetentionAndPrune(),
                           ),
                         ),
                       ],
@@ -469,7 +454,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
     Color borderColor,
   ) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
       decoration: BoxDecoration(
         color: surfaceColor,
         borderRadius: BorderRadius.circular(10),
@@ -478,33 +463,85 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildCategoryPill('Screen Time', state.screenTimeCount, const Color(0xFF06B6D4)),
-          _buildCategoryPill('Call Logs', state.callLogCount, const Color(0xFF8B5CF6)),
-          _buildCategoryPill('Transactions', state.transactionCount, const Color(0xFF10B981)),
-          _buildCategoryPill('OCR Docs', state.ocrDocCount, const Color(0xFFC084FC)),
-          _buildCategoryPill('Alerts/Notes', state.noteCount, const Color(0xFFF59E0B)),
+          _buildCategoryPill(
+            'Screen Time',
+            state.screenTimeCount,
+            const Color(0xFF06B6D4),
+            () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const MemoryCategoryDetailScreen(initialCategory: 'screen_time'),
+              ),
+            ),
+          ),
+          _buildCategoryPill(
+            'Call Logs',
+            state.callLogCount,
+            const Color(0xFF8B5CF6),
+            () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const MemoryCategoryDetailScreen(initialCategory: 'call_log'),
+              ),
+            ),
+          ),
+          _buildCategoryPill(
+            'Transactions',
+            state.transactionCount,
+            const Color(0xFF10B981),
+            () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const MemoryCategoryDetailScreen(initialCategory: 'transaction'),
+              ),
+            ),
+          ),
+          _buildCategoryPill(
+            'OCR Docs',
+            state.ocrDocCount,
+            const Color(0xFFC084FC),
+            () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const MemoryCategoryDetailScreen(initialCategory: 'ocr_doc'),
+              ),
+            ),
+          ),
+          _buildCategoryPill(
+            'Alerts/Notes',
+            state.noteCount,
+            const Color(0xFFF59E0B),
+            () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const MemoryCategoryDetailScreen(initialCategory: 'system_note'),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildCategoryPill(String label, int count, Color color) {
-    return Column(
-      children: [
-        Text(
-          count.toString(),
-          style: TextStyle(
-            color: color,
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-          ),
+  Widget _buildCategoryPill(String label, int count, Color color, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Column(
+          children: [
+            Text(
+              count.toString(),
+              style: TextStyle(
+                color: color,
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(color: Colors.grey.shade400, fontSize: 9.5),
+            ),
+          ],
         ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: TextStyle(color: Colors.grey.shade400, fontSize: 9.5),
-        ),
-      ],
+      ),
     );
   }
 
@@ -871,8 +908,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
     required Color surfaceColor,
     required Color borderColor,
     bool isBadge = false,
+    VoidCallback? onTap,
   }) {
-    return Container(
+    final cardContent = Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: surfaceColor,
@@ -943,6 +981,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
         ],
       ),
     );
+
+    if (onTap != null) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: cardContent,
+        ),
+      );
+    }
+    return cardContent;
   }
 
   Widget _buildCipherInspector({
@@ -1096,6 +1146,92 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
               },
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPipelineActionCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color accentColor,
+    required Color surfaceColor,
+    required Color borderColor,
+    required bool isLoading,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: isLoading ? null : onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: surfaceColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: accentColor.withValues(alpha: 0.35),
+              width: 1.2,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: accentColor.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(icon, color: accentColor, size: 20),
+                  ),
+                  const Spacer(),
+                  if (isLoading)
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: accentColor,
+                      ),
+                    )
+                  else
+                    Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      color: accentColor.withValues(alpha: 0.5),
+                      size: 12,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.2,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: Colors.grey.shade400,
+                  fontSize: 10.5,
+                  height: 1.25,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
